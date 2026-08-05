@@ -1,10 +1,10 @@
 import uuid
-
 import redis.asyncio as redis
 from redis.exceptions import ResponseError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-
+from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
+from core.idempotency import find_existing_job
 from db.models import Job, JobStatus
 from schemas.job import JobCreate
 from core.dag import build_dependency_graph, topological_sort
@@ -28,21 +28,12 @@ async def ensure_consumer_group(
             raise e
 
 
-async def enqueue(
-    db: AsyncSession,
-    redis_client: redis.Redis,
-    job_data: JobCreate,
-) -> Job:
-    """
-    Producer: writes a Job to Postgres, then pushes its id onto the
-    appropriate Redis stream so a worker can pick it up.
-    """
 
-    # --- Step 1: idempotency check ---
+
+async def enqueue(db, redis_client, job_data):
+    # --- Step 1: idempotency pre-check ---
     if job_data.idempotency_key:
-        existing_job = await db.scalar(
-            select(Job).where(Job.idempotency_key == job_data.idempotency_key)
-        )
+        existing_job = await find_existing_job(db, job_data.idempotency_key)
         if existing_job is not None:
             return existing_job
 
@@ -56,7 +47,18 @@ async def enqueue(
         scheduled_at=job_data.scheduled_at,
     )
     db.add(job)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        if not job_data.idempotency_key:
+            raise
+        # Lost the race — someone else's insert with this key landed
+        # first. Their row wins; return it instead of erroring out.
+        existing_job = await find_existing_job(db, job_data.idempotency_key)
+        if existing_job is None:
+            raise  # constraint violation but no matching row — something else is wrong
+        return existing_job
     await db.refresh(job)
 
     # --- Step 3: push onto the stream ---
@@ -151,11 +153,16 @@ async def check_and_unblock_dependents(
             continue
 
         if all(dep.status == JobStatus.COMPLETED for dep in deps):
-            print(f"[unblock-check] UNBLOCKING {candidate.id}")
-            candidate.status = JobStatus.PENDING
+            result = await db.execute(
+                update(Job)
+                .where(Job.id == candidate.id, Job.status == JobStatus.BLOCKED)
+                .values(status=JobStatus.PENDING)
+            )
             await db.commit()
-            await db.refresh(candidate)
-            await _push_to_stream(redis_client, candidate)
+
+            if result.rowcount == 1:
+                await db.refresh(candidate)
+                await _push_to_stream(redis_client, candidate)
 
 
 async def cascade_fail_dependents(

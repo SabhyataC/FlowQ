@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Enum, String, DateTime, Integer, Index
+from sqlalchemy import Column, Enum, String, DateTime, Integer, Index, Float, Boolean
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 import uuid
 from sqlalchemy.sql import func
@@ -110,6 +110,20 @@ class Job(Base):
         nullable=False,
         default=list,
         server_default="[]",
+    )
+    duration_seconds = Column(
+        Float(),
+        nullable=True,  # only set once a job reaches COMPLETED
+    )
+    anomaly_score = Column(
+        Float(),
+        nullable=True,  # z-score vs this job_type's recent history; null until enough samples exist
+    )
+    is_anomaly = Column(
+        Boolean(),
+        nullable=False,
+        default=False,
+        index=True,  # the anomalies API endpoint filters on this
     )
 
     __table_args__ = (

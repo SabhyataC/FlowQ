@@ -164,6 +164,7 @@ async def run_forever(
     queue: str = "default",
     worker_id: str | None = None,
     idle_ms: int = 30_000,
+    stop_event: asyncio.Event | None = None,
 ) -> None:
     """
     Long-running consumer process. Intended to be run as its own
@@ -174,12 +175,19 @@ async def run_forever(
     claim_stale_jobs treats it as orphaned (crashed worker). Lower it
     for fast manual testing (e.g. 3000 = 3s) instead of waiting the
     30s default.
+
+    stop_event: if provided, checked at the TOP of each loop iteration
+    only -- i.e. after any in-flight job from the previous iteration
+    has already fully completed and been ack'd. Setting it never
+    interrupts a job in progress; it just stops this worker from
+    picking up a new one. This is what makes scale-down (and later,
+    SIGTERM) safe.
     """
     worker_id = worker_id or f"worker-{uuid.uuid4().hex[:8]}"
 
-    # TODO: consider a graceful-shutdown flag (SIGTERM handler) so a
-    # `while True` doesn't get killed mid-job. Not needed for Phase 1.
     while True:
+        if stop_event is not None and stop_event.is_set():
+            return
         await claim_stale_jobs(redis_client, worker_id=worker_id, queue=queue, idle_ms=idle_ms)
         await process_batch(redis_client, worker_id=worker_id, queue=queue)
 
