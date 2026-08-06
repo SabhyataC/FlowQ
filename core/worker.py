@@ -3,6 +3,7 @@ import uuid
 import redis.asyncio as redis
 from sqlalchemy import func
 import asyncio
+from core.stats import record_completion_and_score
 from db.connection import AsyncSessionLocal
 from db.models import Job, JobStatus
 from core.queue import check_and_unblock_dependents, cascade_fail_dependents
@@ -69,10 +70,17 @@ async def process_batch(
                 if error is None:
                     job.status = JobStatus.COMPLETED
                     job.result = result
+                    job.completed_at = datetime.now(timezone.utc)
+                    job.duration_seconds = (job.completed_at - job.started_at).total_seconds()
+
+                    job.anomaly_score, job.is_anomaly = await record_completion_and_score(
+                        db, job.type, job.duration_seconds
+                    )
                 else:
                     job.status = JobStatus.FAILED
                     job.error = error
-                job.completed_at = datetime.now(timezone.utc) 
+                    job.completed_at = datetime.now(timezone.utc)
+
                 await db.commit()
 
                 # --- Step 5b: propagate to any DAG dependents ---
@@ -142,10 +150,16 @@ async def claim_stale_jobs(
                 if error is None:
                     job.status = JobStatus.COMPLETED
                     job.result = result
+                    job.completed_at = datetime.now(timezone.utc)
+                    job.duration_seconds = (job.completed_at - job.started_at).total_seconds()
+
+                    job.anomaly_score, job.is_anomaly = await record_completion_and_score(
+                        db, job.type, job.duration_seconds
+                    )
                 else:
                     job.status = JobStatus.FAILED
                     job.error = error
-                job.completed_at = datetime.now(timezone.utc)
+                    job.completed_at = datetime.now(timezone.utc)
                 await db.commit()
 
                 if error is None:
@@ -200,7 +214,8 @@ async def execute_job(job: Job) -> tuple[dict | None, str | None]:
     and return a canned result. Later this becomes a dispatch table
     keyed on job.type (see core/registry.py).
     """
-    await asyncio.sleep(2)
+    sleep_seconds = job.payload.get("_sleep_seconds", 2)  # TODO: remove once real dispatch table exists; test-only hook
+    await asyncio.sleep(sleep_seconds)
 
     result = {
         "message": f"Simulated execution of job type '{job.type}'",

@@ -129,3 +129,28 @@ class Job(Base):
     __table_args__ = (
         Index("ix_jobs_status_queue_priority", "status", "queue", "priority"),
     )
+
+
+class JobTypeStats(Base):
+    __tablename__ = "job_type_stats"
+
+    job_type = Column(String(), primary_key=True)
+
+    count = Column(
+        Integer(),
+        nullable=False,
+        default=0,  # n samples seen so far
+    )
+    mean = Column(
+        Float(),
+        nullable=False,
+        default=0.0,  # running mean (Welford)
+    )
+    m2 = Column(
+        Float(),
+        nullable=False,
+        default=0.0,  # sum of squares of differences from the mean (Welford), variance = m2 / count
+    )
+
+    # TODO: decide minimum sample threshold before z-scores are trusted
+    # (e.g. count < 5 -> anomaly_score stays null, is_anomaly stays False)

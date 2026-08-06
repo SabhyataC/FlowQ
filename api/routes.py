@@ -10,6 +10,8 @@ from db.models import Job
 from schemas.job import JobCreate, JobResponse, JobBatchCreate, JobBatchResponse
 from core.queue import enqueue, enqueue_batch
 from core.dag import DAGValidationError
+from typing import Optional
+from sqlalchemy import select
 
 router = APIRouter()
 
@@ -27,6 +29,26 @@ async def submit_job(
     job = await enqueue(db, redis_client, job_data)
     return job
 
+
+@router.get("/jobs/anomalies", response_model=list[JobResponse])
+async def list_anomalies(
+    job_type: Optional[str] = None,
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    List jobs flagged as anomalous (is_anomaly=True), most recent first.
+    Optionally filter by job_type.
+    """
+    query = select(Job).where(Job.is_anomaly == True).order_by(Job.completed_at.desc())
+
+    if job_type is not None:
+        query = query.where(Job.type == job_type)
+
+    query = query.limit(limit)
+
+    result = await db.execute(query)
+    return result.scalars().all()
 
 @router.get("/jobs/{job_id}", response_model=JobResponse)
 async def get_job_status(

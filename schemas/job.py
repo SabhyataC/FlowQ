@@ -117,6 +117,9 @@ class JobResponse(BaseModel):
         default_factory=list,
         description="Actual job IDs (not batch_refs) this job depends on. Empty for non-DAG jobs.",
     )
+    duration_seconds: Optional[float] = None
+    anomaly_score: Optional[float] = None
+    is_anomaly: bool = False
 
 class JobBatchCreate(BaseModel):
     """
