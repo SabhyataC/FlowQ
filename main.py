@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from core.queue import ensure_consumer_group
 from db.redis_client import close_redis, redis_client
@@ -17,3 +18,4 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 app.include_router(router)
+app.mount("/dashboard", StaticFiles(directory="dashboard", html=True), name="dashboard")

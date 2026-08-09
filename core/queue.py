@@ -92,6 +92,25 @@ async def enqueue_batch(
     for ref in topo_order:
         job_data = by_ref[ref]
 
+        # --- idempotency pre-check ---
+        # Mirrors enqueue()'s Step 1. find_existing_job() sees rows already
+        # committed from prior calls AND rows flushed earlier in this same
+        # batch loop (flush without commit is still visible within the
+        # transaction), so a duplicate key reused within one batch also
+        # resolves to the same job. NOTE: unlike enqueue(), this is a
+        # pre-check only — there's no IntegrityError catch here, so two
+        # concurrent enqueue_batch calls racing on the same key can still
+        # both pass this check and hit the unique constraint at the final
+        # db.commit() below, which will raise rather than dedupe. Closing
+        # that race would need per-job commits (like enqueue()), which
+        # changes batch atomicity — left as a known follow-up.
+        if job_data.idempotency_key:
+            existing_job = await find_existing_job(db, job_data.idempotency_key)
+            if existing_job is not None:
+                id_by_ref[ref] = existing_job.id
+                created[ref] = existing_job
+                continue
+
         dep_ids = [str(id_by_ref[dep_ref]) for dep_ref in job_data.depends_on]
         status = JobStatus.BLOCKED if dep_ids else JobStatus.PENDING
 

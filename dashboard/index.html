@@ -1,0 +1,1752 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FlowQ // dashboard</title>
+    <style>
+        :root {
+            --bg: #0b0e14;
+            --panel: #11151f;
+            --panel-2: #151a26;
+            --panel-border: #1e2530;
+            --text: #d7dce3;
+            --text-dim: #6b7383;
+            --text-dimmer: #454e5f;
+            --accent: #4fd1a5;
+            --accent-dim: #2a5a49;
+            --blue: #58a6ff;
+            --blue-dim: #1f3a5c;
+            --purple: #9370db;
+            --amber: #f5a623;
+            --amber-dim: #5a4419;
+            --red: #ff5c5c;
+            --red-dim: #5a2323;
+            --locked: #333a47;
+            --mono: 'SF Mono', 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--mono);
+            min-height: 100vh;
+        }
+
+        body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            z-index: -2;
+            background: var(--bg);
+        }
+
+        body::after {
+            content: "";
+            position: fixed;
+            inset: 0;
+            z-index: -1;
+            pointer-events: none;
+            background:
+                radial-gradient(500px circle at 10% 5%, rgba(79, 209, 165, .10), transparent),
+                radial-gradient(600px circle at 90% 0%, rgba(88, 166, 255, .10), transparent),
+                radial-gradient(700px circle at 50% 100%, rgba(147, 112, 219, .08), transparent);
+            filter: blur(40px);
+        }
+
+        #root {
+            max-width: 1440px;
+            margin: 0 auto;
+            padding: 22px 24px 60px;
+        }
+
+        /* ---------- header ---------- */
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .brand {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .eyebrow {
+            color: var(--accent);
+            font-size: 11px;
+            letter-spacing: .14em;
+            text-transform: uppercase;
+        }
+
+        .brand h1 {
+            margin: 0;
+            font-size: 21px;
+            font-weight: 600;
+            letter-spacing: -0.01em;
+        }
+
+        .conn {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 11px;
+            color: var(--text-dim);
+        }
+
+        .conn-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-dimmer);
+            box-shadow: none;
+            transition: all .3s ease;
+        }
+
+        .conn-dot.live {
+            background: var(--accent);
+            box-shadow: 0 0 8px 1px rgba(79, 209, 165, .7);
+            animation: pulse-dot 1.8s ease-in-out infinite;
+        }
+
+        .conn-dot.error {
+            background: var(--red);
+            box-shadow: 0 0 8px 1px rgba(255, 92, 92, .6);
+        }
+
+        @keyframes pulse-dot {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: .45;
+            }
+        }
+
+        /* ---------- scaler gauge ---------- */
+        .gauge-strip {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .gauge-chip {
+            background: var(--panel);
+            border: 1px solid var(--panel-border);
+            border-radius: 8px;
+            padding: 8px 14px;
+            min-width: 92px;
+        }
+
+        .gauge-chip .label {
+            font-size: 10px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: .08em;
+            margin-bottom: 4px;
+        }
+
+        .gauge-chip .value {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text);
+            display: flex;
+            align-items: baseline;
+            gap: 4px;
+        }
+
+        .gauge-chip .value small {
+            font-size: 11px;
+            color: var(--text-dim);
+            font-weight: 400;
+        }
+
+        .gauge-chip.pool .value {
+            color: var(--blue);
+        }
+
+        .gauge-chip.depth .value {
+            color: var(--amber);
+        }
+
+        .gauge-chip.depth.zero .value {
+            color: var(--accent);
+        }
+
+        .pool-bar-track {
+            margin-top: 6px;
+            height: 4px;
+            background: var(--panel-border);
+            border-radius: 2px;
+            overflow: hidden;
+            width: 100%;
+        }
+
+        .pool-bar-fill {
+            height: 100%;
+            background: var(--blue);
+            width: 0%;
+            transition: width .5s ease;
+        }
+
+        /* ---------- layout grid ---------- */
+        .grid {
+            display: grid;
+            grid-template-columns: 320px 1fr;
+            gap: 16px;
+            align-items: start;
+        }
+
+        @media (max-width: 980px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--panel-border);
+            border-radius: 10px;
+            padding: 16px;
+        }
+
+        .panel h2 {
+            margin: 0 0 12px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .panel h2 .count-badge {
+            font-size: 10px;
+            color: var(--text-dim);
+            font-weight: 400;
+        }
+
+        /* ---------- submit form ---------- */
+        .tabs {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 14px;
+            background: var(--panel-2);
+            border-radius: 7px;
+            padding: 3px;
+        }
+
+        .tab-btn {
+            flex: 1;
+            background: none;
+            border: none;
+            color: var(--text-dim);
+            font-family: var(--mono);
+            font-size: 11px;
+            padding: 7px 4px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all .15s ease;
+        }
+
+        .tab-btn.active {
+            background: var(--panel-border);
+            color: var(--text);
+        }
+
+        label {
+            display: block;
+            font-size: 10px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: .06em;
+            margin: 10px 0 4px;
+        }
+
+        label:first-of-type {
+            margin-top: 0;
+        }
+
+        input[type=text],
+        input[type=number],
+        textarea,
+        select {
+            width: 100%;
+            background: var(--panel-2);
+            border: 1px solid var(--panel-border);
+            color: var(--text);
+            font-family: var(--mono);
+            font-size: 12px;
+            padding: 7px 9px;
+            border-radius: 6px;
+            outline: none;
+            transition: border-color .15s ease;
+        }
+
+        input:focus,
+        textarea:focus,
+        select:focus {
+            border-color: var(--accent-dim);
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 54px;
+            line-height: 1.5;
+        }
+
+        .row-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .btn {
+            font-family: var(--mono);
+            font-size: 12px;
+            font-weight: 600;
+            border: none;
+            border-radius: 7px;
+            padding: 9px 14px;
+            cursor: pointer;
+            transition: all .15s ease;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: #08120e;
+        }
+
+        .btn-primary:hover {
+            background: #63e0b6;
+        }
+
+        .btn-primary:disabled {
+            background: var(--locked);
+            color: var(--text-dim);
+            cursor: not-allowed;
+        }
+
+        .btn-ghost {
+            background: none;
+            border: 1px solid var(--panel-border);
+            color: var(--text-dim);
+        }
+
+        .btn-ghost:hover {
+            color: var(--text);
+            border-color: var(--text-dimmer);
+        }
+
+        .btn-sm {
+            font-size: 11px;
+            padding: 5px 9px;
+        }
+
+        .btn-block {
+            width: 100%;
+            margin-top: 14px;
+        }
+
+        .dag-row {
+            border: 1px solid var(--panel-border);
+            border-radius: 7px;
+            padding: 10px;
+            margin-bottom: 8px;
+            background: var(--panel-2);
+            position: relative;
+        }
+
+        .dag-row .remove-row {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: none;
+            border: none;
+            color: var(--text-dimmer);
+            cursor: pointer;
+            font-size: 13px;
+            line-height: 1;
+        }
+
+        .dag-row .remove-row:hover {
+            color: var(--red);
+        }
+
+        .dag-row .ref-tag {
+            display: inline-block;
+            background: var(--accent-dim);
+            color: var(--accent);
+            font-size: 10px;
+            padding: 2px 7px;
+            border-radius: 4px;
+            margin-bottom: 6px;
+            font-weight: 600;
+        }
+
+        .chip-multiselect {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-top: 4px;
+        }
+
+        .chip-toggle {
+            font-size: 10px;
+            padding: 3px 8px;
+            border-radius: 10px;
+            border: 1px solid var(--panel-border);
+            background: var(--panel);
+            color: var(--text-dim);
+            cursor: pointer;
+            transition: all .12s ease;
+        }
+
+        .chip-toggle.selected {
+            background: var(--blue-dim);
+            border-color: var(--blue);
+            color: var(--blue);
+        }
+
+        .form-msg {
+            font-size: 11px;
+            margin-top: 10px;
+            padding: 8px 10px;
+            border-radius: 6px;
+            display: none;
+        }
+
+        .form-msg.show {
+            display: block;
+        }
+
+        .form-msg.ok {
+            background: var(--accent-dim);
+            color: var(--accent);
+        }
+
+        .form-msg.err {
+            background: var(--red-dim);
+            color: var(--red);
+        }
+
+        /* ---------- stats strip ---------- */
+        .stats-strip {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        @media (max-width: 700px) {
+            .stats-strip {
+                grid-template-columns: repeat(3, 1fr);
+            }
+        }
+
+        .stat-card {
+            background: var(--panel);
+            border: 1px solid var(--panel-border);
+            border-radius: 8px;
+            padding: 10px 12px;
+            text-align: center;
+        }
+
+        .stat-card .num {
+            font-size: 19px;
+            font-weight: 700;
+        }
+
+        .stat-card .lbl {
+            font-size: 9px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: .06em;
+            margin-top: 2px;
+        }
+
+        .stat-card.pending .num {
+            color: var(--amber);
+        }
+
+        .stat-card.running .num {
+            color: var(--blue);
+        }
+
+        .stat-card.completed .num {
+            color: var(--accent);
+        }
+
+        .stat-card.failed .num {
+            color: var(--red);
+        }
+
+        .stat-card.blocked .num {
+            color: var(--purple);
+        }
+
+        .stat-card.anomaly .num {
+            color: var(--red);
+        }
+
+        /* ---------- main tabs ---------- */
+        .main-tabs {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 14px;
+        }
+
+        .main-tab-btn {
+            background: var(--panel);
+            border: 1px solid var(--panel-border);
+            color: var(--text-dim);
+            font-family: var(--mono);
+            font-size: 12px;
+            padding: 8px 16px;
+            border-radius: 7px;
+            cursor: pointer;
+        }
+
+        .main-tab-btn.active {
+            background: var(--panel-2);
+            color: var(--accent);
+            border-color: var(--accent-dim);
+        }
+
+        .view-panel {
+            display: none;
+        }
+
+        .view-panel.active {
+            display: block;
+        }
+
+        /* ---------- filters ---------- */
+        .filter-bar {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+            align-items: center;
+        }
+
+        .filter-bar select,
+        .filter-bar input {
+            width: auto;
+            min-width: 120px;
+        }
+
+        .filter-bar .spacer {
+            flex: 1;
+        }
+
+        .live-badge {
+            font-size: 10px;
+            color: var(--text-dim);
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        /* ---------- table ---------- */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+
+        thead th {
+            text-align: left;
+            font-size: 10px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: .05em;
+            padding: 8px 10px;
+            border-bottom: 1px solid var(--panel-border);
+            cursor: pointer;
+            user-select: none;
+            white-space: nowrap;
+        }
+
+        thead th:hover {
+            color: var(--text);
+        }
+
+        tbody tr {
+            border-bottom: 1px solid rgba(255, 255, 255, .03);
+            transition: background .8s ease;
+        }
+
+        tbody tr:hover {
+            background: rgba(255, 255, 255, .02);
+        }
+
+        tbody tr.flash {
+            background: rgba(79, 209, 165, .10);
+        }
+
+        tbody td {
+            padding: 8px 10px;
+            color: var(--text);
+            vertical-align: middle;
+        }
+
+        .mono-id {
+            color: var(--text-dim);
+            font-size: 11px;
+        }
+
+        .job-type {
+            color: var(--text);
+            font-weight: 600;
+        }
+
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 10px;
+            font-weight: 600;
+            padding: 3px 9px;
+            border-radius: 12px;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+        }
+
+        .pill::before {
+            content: "";
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+        }
+
+        .pill.pending {
+            background: var(--amber-dim);
+            color: var(--amber);
+        }
+
+        .pill.pending::before {
+            background: var(--amber);
+        }
+
+        .pill.running {
+            background: var(--blue-dim);
+            color: var(--blue);
+        }
+
+        .pill.running::before {
+            background: var(--blue);
+            animation: pulse-dot 1.4s ease-in-out infinite;
+        }
+
+        .pill.completed {
+            background: var(--accent-dim);
+            color: var(--accent);
+        }
+
+        .pill.completed::before {
+            background: var(--accent);
+        }
+
+        .pill.failed {
+            background: var(--red-dim);
+            color: var(--red);
+        }
+
+        .pill.failed::before {
+            background: var(--red);
+        }
+
+        .pill.blocked {
+            background: rgba(147, 112, 219, .15);
+            color: var(--purple);
+        }
+
+        .pill.blocked::before {
+            background: var(--purple);
+        }
+
+        .anomaly-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 9px;
+            color: var(--red);
+            background: var(--red-dim);
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin-left: 6px;
+        }
+
+        .empty-state {
+            text-align: center;
+            color: var(--text-dim);
+            font-size: 12px;
+            padding: 40px 0;
+        }
+
+        /* ---------- DAG graph ---------- */
+        .dag-controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+        }
+
+        .dag-controls select {
+            min-width: 260px;
+        }
+
+        #dag-canvas-wrap {
+            background: var(--panel-2);
+            border: 1px solid var(--panel-border);
+            border-radius: 8px;
+            overflow: auto;
+            min-height: 360px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .dag-node-rect {
+            fill: var(--panel);
+            stroke: var(--panel-border);
+            stroke-width: 1.5;
+            rx: 8;
+        }
+
+        .dag-node-rect.pending {
+            stroke: var(--amber);
+        }
+
+        .dag-node-rect.running {
+            stroke: var(--blue);
+            filter: drop-shadow(0 0 4px rgba(88, 166, 255, .5));
+        }
+
+        .dag-node-rect.completed {
+            stroke: var(--accent);
+        }
+
+        .dag-node-rect.failed {
+            stroke: var(--red);
+            filter: drop-shadow(0 0 4px rgba(255, 92, 92, .5));
+        }
+
+        .dag-node-rect.blocked {
+            stroke: var(--purple);
+            stroke-dasharray: 4 3;
+        }
+
+        .dag-node-label {
+            fill: var(--text);
+            font-size: 11px;
+            font-family: var(--mono);
+            font-weight: 600;
+        }
+
+        .dag-node-sub {
+            fill: var(--text-dim);
+            font-size: 9px;
+            font-family: var(--mono);
+        }
+
+        .dag-edge {
+            stroke: var(--panel-border);
+            stroke-width: 1.5;
+            fill: none;
+        }
+
+        .dag-edge.active {
+            stroke: var(--accent-dim);
+        }
+
+        /* ---------- anomalies panel ---------- */
+        .anomaly-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px;
+            border: 1px solid var(--panel-border);
+            border-radius: 8px;
+            margin-bottom: 8px;
+            background: var(--panel-2);
+        }
+
+        .anomaly-score-bar {
+            width: 100px;
+            flex-shrink: 0;
+        }
+
+        .anomaly-score-track {
+            height: 5px;
+            background: var(--panel-border);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .anomaly-score-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--amber), var(--red));
+        }
+
+        .anomaly-score-num {
+            font-size: 9px;
+            color: var(--text-dim);
+            margin-top: 3px;
+        }
+
+        .anomaly-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .anomaly-info .type {
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .anomaly-info .meta {
+            font-size: 10px;
+            color: var(--text-dim);
+            margin-top: 2px;
+        }
+
+        /* ---------- toasts ---------- */
+        #toast-stack {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            z-index: 999;
+            max-width: 320px;
+        }
+
+        .toast {
+            background: var(--panel);
+            border: 1px solid var(--panel-border);
+            border-left: 3px solid var(--accent);
+            border-radius: 7px;
+            padding: 10px 14px;
+            font-size: 11px;
+            color: var(--text);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, .4);
+            animation: toast-in .25s ease;
+        }
+
+        .toast.failed {
+            border-left-color: var(--red);
+        }
+
+        .toast.anomaly {
+            border-left-color: var(--red);
+        }
+
+        .toast .t-title {
+            font-weight: 600;
+            margin-bottom: 2px;
+        }
+
+        .toast .t-sub {
+            color: var(--text-dim);
+            font-size: 10px;
+        }
+
+        @keyframes toast-in {
+            from {
+                opacity: 0;
+                transform: translateX(16px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .toast.out {
+            animation: toast-out .25s ease forwards;
+        }
+
+        @keyframes toast-out {
+            to {
+                opacity: 0;
+                transform: translateX(16px);
+            }
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--panel-border);
+            border-radius: 4px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="root">
+
+        <header>
+            <div class="brand">
+                <div class="eyebrow">FlowQ // live dashboard</div>
+                <h1>Job queue control panel</h1>
+            </div>
+
+            <div style="display:flex; align-items:center; gap:18px;">
+                <div class="conn">
+                    <span class="conn-dot" id="conn-dot"></span>
+                    <span id="conn-label">connecting…</span>
+                </div>
+                <div class="gauge-strip">
+                    <div class="gauge-chip depth" id="chip-depth">
+                        <div class="label">Queue depth</div>
+                        <div class="value" id="val-depth">–</div>
+                    </div>
+                    <div class="gauge-chip pool">
+                        <div class="label">Workers active / target</div>
+                        <div class="value" id="val-pool">– <small>/ –</small></div>
+                        <div class="pool-bar-track">
+                            <div class="pool-bar-fill" id="pool-bar"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <div class="grid">
+
+            <!-- ============ LEFT: submission panel ============ -->
+            <div class="panel">
+                <h2>Submit work</h2>
+                <div class="tabs">
+                    <button class="tab-btn active" data-tab="single">Single job</button>
+                    <button class="tab-btn" data-tab="dag">DAG batch</button>
+                </div>
+
+                <!-- Single job form -->
+                <div id="tab-single">
+                    <label>Type</label>
+                    <input type="text" id="s-type" placeholder="e.g. resize_image" value="demo_job">
+
+                    <label>Payload (JSON)</label>
+                    <textarea id="s-payload">{"_sleep_seconds": 2}</textarea>
+
+                    <div class="row-2">
+                        <div>
+                            <label>Priority</label>
+                            <input type="number" id="s-priority" value="0" min="0">
+                        </div>
+                        <div>
+                            <label>Queue</label>
+                            <input type="text" id="s-queue" value="default">
+                        </div>
+                    </div>
+
+                    <label>Idempotency key <span
+                            style="text-transform:none; color:var(--text-dimmer);">(optional)</span></label>
+                    <input type="text" id="s-idem" placeholder="leave blank to skip">
+
+                    <button class="btn btn-primary btn-block" id="s-submit">Submit job</button>
+                    <div class="form-msg" id="s-msg"></div>
+                </div>
+
+                <!-- DAG batch form -->
+                <div id="tab-dag" style="display:none;">
+                    <div id="dag-rows"></div>
+                    <button class="btn btn-ghost btn-sm" id="dag-add-row" style="width:100%;">+ add job to
+                        batch</button>
+                    <button class="btn btn-primary btn-block" id="dag-submit">Submit DAG batch</button>
+                    <div class="form-msg" id="dag-msg"></div>
+                </div>
+            </div>
+
+            <!-- ============ RIGHT: main content ============ -->
+            <div>
+                <div class="stats-strip">
+                    <div class="stat-card pending">
+                        <div class="num" id="stat-pending">0</div>
+                        <div class="lbl">Pending</div>
+                    </div>
+                    <div class="stat-card running">
+                        <div class="num" id="stat-running">0</div>
+                        <div class="lbl">Running</div>
+                    </div>
+                    <div class="stat-card blocked">
+                        <div class="num" id="stat-blocked">0</div>
+                        <div class="lbl">Blocked</div>
+                    </div>
+                    <div class="stat-card completed">
+                        <div class="num" id="stat-completed">0</div>
+                        <div class="lbl">Completed</div>
+                    </div>
+                    <div class="stat-card failed">
+                        <div class="num" id="stat-failed">0</div>
+                        <div class="lbl">Failed</div>
+                    </div>
+                    <div class="stat-card anomaly">
+                        <div class="num" id="stat-anomaly">0</div>
+                        <div class="lbl">Anomalies</div>
+                    </div>
+                </div>
+
+                <div class="main-tabs">
+                    <button class="main-tab-btn active" data-view="jobs">Live jobs</button>
+                    <button class="main-tab-btn" data-view="dag">DAG graph</button>
+                    <button class="main-tab-btn" data-view="anomalies">Anomalies</button>
+                </div>
+
+                <!-- Jobs table -->
+                <div class="view-panel active panel" id="view-jobs">
+                    <div class="filter-bar">
+                        <select id="f-status">
+                            <option value="">All statuses</option>
+                            <option value="pending">Pending</option>
+                            <option value="running">Running</option>
+                            <option value="blocked">Blocked</option>
+                            <option value="completed">Completed</option>
+                            <option value="failed">Failed</option>
+                        </select>
+                        <input type="text" id="f-type" placeholder="Filter by type…">
+                        <div class="spacer"></div>
+                        <span class="live-badge"><span class="conn-dot live" style="width:6px;height:6px;"></span>
+                            updating live</span>
+                    </div>
+                    <div style="max-height: 560px; overflow-y: auto;">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th data-sort="type">Type</th>
+                                    <th data-sort="status">Status</th>
+                                    <th data-sort="queue">Queue</th>
+                                    <th data-sort="duration_seconds">Duration</th>
+                                    <th data-sort="created_at">Created</th>
+                                    <th>Id</th>
+                                </tr>
+                            </thead>
+                            <tbody id="jobs-tbody"></tbody>
+                        </table>
+                        <div class="empty-state" id="jobs-empty" style="display:none;">No jobs match the current filters
+                            yet.</div>
+                    </div>
+                </div>
+
+                <!-- DAG graph -->
+                <div class="view-panel panel" id="view-dag">
+                    <div class="dag-controls">
+                        <select id="dag-group-select"></select>
+                        <span style="font-size:11px; color:var(--text-dim);" id="dag-group-info"></span>
+                    </div>
+                    <div id="dag-canvas-wrap">
+                        <div class="empty-state" id="dag-empty">Submit a DAG batch to see it visualized here.</div>
+                        <svg id="dag-svg" style="display:none;"></svg>
+                    </div>
+                </div>
+
+                <!-- Anomalies -->
+                <div class="view-panel panel" id="view-anomalies">
+                    <h2 style="margin-bottom:14px;">Flagged jobs <span class="count-badge"
+                            id="anomaly-count-badge"></span></h2>
+                    <div id="anomaly-list"></div>
+                    <div class="empty-state" id="anomaly-empty" style="display:none;">No anomalies detected yet.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast-stack"></div>
+
+    <script>
+        (function () {
+            "use strict";
+
+            const API = "";  // same-origin
+            const jobs = new Map();          // id -> job
+            let sortKey = "created_at";
+            let sortDir = -1;                // desc
+            let dagRowCount = 0;
+            let selectedDagGroup = null;
+
+            // ------------------------------------------------------------------
+            // Tabs (submission form)
+            // ------------------------------------------------------------------
+            document.querySelectorAll(".tab-btn").forEach(btn => {
+                btn.addEventListener("click", () => {
+                    document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+                    btn.classList.add("active");
+                    const tab = btn.dataset.tab;
+                    document.getElementById("tab-single").style.display = tab === "single" ? "block" : "none";
+                    document.getElementById("tab-dag").style.display = tab === "dag" ? "block" : "none";
+                });
+            });
+
+            // Main view tabs
+            // Main view tabs
+            document.querySelectorAll(".main-tab-btn").forEach(btn => {
+                btn.addEventListener("click", () => {
+                    document.querySelectorAll(".main-tab-btn").forEach(b => b.classList.remove("active"));
+                    document.querySelectorAll(".view-panel").forEach(p => p.classList.remove("active"));
+                    btn.classList.add("active");
+                    document.getElementById("view-" + btn.dataset.view).classList.add("active");
+                    if (btn.dataset.view === "dag") renderDagGraph();
+                    if (btn.dataset.view === "anomalies") renderAnomalies();
+                });
+            });
+
+            // ------------------------------------------------------------------
+            // Single job submit
+            // ------------------------------------------------------------------
+            document.getElementById("s-submit").addEventListener("click", async () => {
+                const msg = document.getElementById("s-msg");
+                msg.className = "form-msg";
+                let payload;
+                try {
+                    payload = JSON.parse(document.getElementById("s-payload").value || "{}");
+                } catch (e) {
+                    msg.textContent = "Payload isn't valid JSON: " + e.message;
+                    msg.className = "form-msg err show";
+                    return;
+                }
+                const body = {
+                    type: document.getElementById("s-type").value.trim(),
+                    payload,
+                    priority: parseInt(document.getElementById("s-priority").value || "0", 10),
+                    queue: document.getElementById("s-queue").value.trim() || "default",
+                };
+                const idem = document.getElementById("s-idem").value.trim();
+                if (idem) body.idempotency_key = idem;
+
+                if (!body.type) {
+                    msg.textContent = "Type is required.";
+                    msg.className = "form-msg err show";
+                    return;
+                }
+
+                try {
+                    const res = await fetch(API + "/jobs", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(body),
+                    });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.detail ? JSON.stringify(data.detail) : res.status);
+                    upsertJob(data);
+                    msg.textContent = "Submitted — job " + data.id.slice(0, 8) + "…";
+                    msg.className = "form-msg ok show";
+                } catch (e) {
+                    msg.textContent = "Failed: " + e.message;
+                    msg.className = "form-msg err show";
+                }
+            });
+
+            // ------------------------------------------------------------------
+            // DAG batch builder
+            // ------------------------------------------------------------------
+            function refLabel(i) {
+                // A, B, C ... Z, AA, AB ...
+                let s = "";
+                i += 1;
+                while (i > 0) {
+                    const rem = (i - 1) % 26;
+                    s = String.fromCharCode(65 + rem) + s;
+                    i = Math.floor((i - 1) / 26);
+                }
+                return s;
+            }
+
+            function addDagRow(prefill) {
+                const idx = dagRowCount++;
+                const ref = refLabel(idx);
+                const wrap = document.createElement("div");
+                wrap.className = "dag-row";
+                wrap.dataset.ref = ref;
+                wrap.innerHTML = `
+      <button class="remove-row" title="remove">✕</button>
+      <span class="ref-tag">${ref}</span>
+      <label style="margin-top:4px;">Type</label>
+      <input type="text" class="dag-type" value="${prefill && prefill.type || 'demo_job'}">
+      <label>Payload (JSON)</label>
+      <textarea class="dag-payload" style="min-height:36px;">${prefill && prefill.payload || '{"_sleep_seconds": 2}'}</textarea>
+      <label>Depends on</label>
+      <div class="chip-multiselect dag-deps"></div>
+    `;
+                wrap.querySelector(".remove-row").addEventListener("click", () => {
+                    wrap.remove();
+                    refreshDagDepsChips();
+                });
+                document.getElementById("dag-rows").appendChild(wrap);
+                refreshDagDepsChips();
+            }
+
+            function refreshDagDepsChips() {
+                const rows = [...document.querySelectorAll("#dag-rows .dag-row")];
+                const refs = rows.map(r => r.dataset.ref);
+                rows.forEach(row => {
+                    const depsWrap = row.querySelector(".dag-deps");
+                    const currentlySelected = new Set(
+                        [...depsWrap.querySelectorAll(".chip-toggle.selected")].map(c => c.dataset.ref)
+                    );
+                    depsWrap.innerHTML = "";
+                    refs.forEach(r => {
+                        if (r === row.dataset.ref) return;
+                        const chip = document.createElement("span");
+                        chip.className = "chip-toggle" + (currentlySelected.has(r) ? " selected" : "");
+                        chip.dataset.ref = r;
+                        chip.textContent = r;
+                        chip.addEventListener("click", () => chip.classList.toggle("selected"));
+                        depsWrap.appendChild(chip);
+                    });
+                    if (refs.length <= 1) {
+                        depsWrap.innerHTML = '<span style="color:var(--text-dimmer); font-size:10px;">add another job to link dependencies</span>';
+                    }
+                });
+            }
+
+            document.getElementById("dag-add-row").addEventListener("click", () => addDagRow());
+
+            document.getElementById("dag-submit").addEventListener("click", async () => {
+                const msg = document.getElementById("dag-msg");
+                msg.className = "form-msg";
+                const rows = [...document.querySelectorAll("#dag-rows .dag-row")];
+                if (rows.length === 0) {
+                    msg.textContent = "Add at least one job to the batch.";
+                    msg.className = "form-msg err show";
+                    return;
+                }
+                let jobsPayload;
+                try {
+                    jobsPayload = rows.map(row => {
+                        let payload;
+                        try {
+                            payload = JSON.parse(row.querySelector(".dag-payload").value || "{}");
+                        } catch (e) {
+                            throw new Error(`Row ${row.dataset.ref}: payload isn't valid JSON`);
+                        }
+                        const deps = [...row.querySelectorAll(".dag-deps .chip-toggle.selected")].map(c => c.dataset.ref);
+                        return {
+                            type: row.querySelector(".dag-type").value.trim() || "demo_job",
+                            payload,
+                            batch_ref: row.dataset.ref,
+                            depends_on: deps,
+                        };
+                    });
+                } catch (e) {
+                    msg.textContent = e.message;
+                    msg.className = "form-msg err show";
+                    return;
+                }
+
+                try {
+                    const res = await fetch(API + "/jobs/batch", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ jobs: jobsPayload }),
+                    });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.detail || res.status);
+                    Object.values(data.jobs).forEach(upsertJob);
+                    msg.textContent = `Batch submitted — ${Object.keys(data.jobs).length} jobs.`;
+                    msg.className = "form-msg ok show";
+                    // reset builder
+                    document.getElementById("dag-rows").innerHTML = "";
+                    dagRowCount = 0;
+                    addDagRow({ type: "fetch_data" });
+                    addDagRow({ type: "process_data" });
+                    addDagRow({ type: "notify" });
+                    refreshDagDepsChips();
+                    // auto-link B->A, C->B as a friendly starter chain
+                    const rowsAfter = [...document.querySelectorAll("#dag-rows .dag-row")];
+                    if (rowsAfter.length >= 2) {
+                        const chipA = rowsAfter[1].querySelector('.chip-toggle[data-ref="A"]');
+                        if (chipA) chipA.classList.add("selected");
+                    }
+                    if (rowsAfter.length >= 3) {
+                        const chipB = rowsAfter[2].querySelector('.chip-toggle[data-ref="B"]');
+                        if (chipB) chipB.classList.add("selected");
+                    }
+                    switchToDagView(data.jobs);
+                } catch (e) {
+                    msg.textContent = "Failed: " + e.message;
+                    msg.className = "form-msg err show";
+                }
+            });
+
+            function switchToDagView(jobsByRef) {
+                document.querySelectorAll(".main-tab-btn").forEach(b => b.classList.remove("active"));
+                document.querySelectorAll(".view-panel").forEach(p => p.classList.remove("active"));
+                document.querySelector('.main-tab-btn[data-view="dag"]').classList.add("active");
+                document.getElementById("view-dag").classList.add("active");
+                const anyId = Object.values(jobsByRef)[0] && Object.values(jobsByRef)[0].id;
+                if (anyId) selectedDagGroup = anyId;
+                renderDagGraph();
+            }
+
+            // seed with a friendly starter DAG example
+            addDagRow({ type: "fetch_data" });
+            addDagRow({ type: "process_data" });
+            addDagRow({ type: "notify" });
+            setTimeout(() => {
+                const rows = [...document.querySelectorAll("#dag-rows .dag-row")];
+                const chipA = rows[1] && rows[1].querySelector('.chip-toggle[data-ref="A"]');
+                if (chipA) chipA.classList.add("selected");
+                const chipB = rows[2] && rows[2].querySelector('.chip-toggle[data-ref="B"]');
+                if (chipB) chipB.classList.add("selected");
+            }, 0);
+
+            // ------------------------------------------------------------------
+            // Filters + sorting (jobs table)
+            // ------------------------------------------------------------------
+            document.getElementById("f-status").addEventListener("change", renderTable);
+            document.getElementById("f-type").addEventListener("input", renderTable);
+            document.querySelectorAll("thead th[data-sort]").forEach(th => {
+                th.addEventListener("click", () => {
+                    const key = th.dataset.sort;
+                    if (sortKey === key) sortDir *= -1;
+                    else { sortKey = key; sortDir = 1; }
+                    renderTable();
+                });
+            });
+
+            // ------------------------------------------------------------------
+            // Rendering
+            // ------------------------------------------------------------------
+            function fmtDuration(job) {
+                if (job.duration_seconds != null) return job.duration_seconds.toFixed(2) + "s";
+                if (job.status === "running" && job.started_at) {
+                    const secs = (Date.now() - new Date(job.started_at).getTime()) / 1000;
+                    return "~" + secs.toFixed(0) + "s";
+                }
+                return "–";
+            }
+            function fmtTime(iso) {
+                if (!iso) return "–";
+                const d = new Date(iso);
+                return d.toLocaleTimeString([], { hour12: false });
+            }
+
+            function renderStats() {
+                const counts = { pending: 0, running: 0, blocked: 0, completed: 0, failed: 0 };
+                let anomalies = 0;
+                jobs.forEach(j => {
+                    if (counts[j.status] !== undefined) counts[j.status]++;
+                    if (j.is_anomaly) anomalies++;
+                });
+                document.getElementById("stat-pending").textContent = counts.pending;
+                document.getElementById("stat-running").textContent = counts.running;
+                document.getElementById("stat-blocked").textContent = counts.blocked;
+                document.getElementById("stat-completed").textContent = counts.completed;
+                document.getElementById("stat-failed").textContent = counts.failed;
+                document.getElementById("stat-anomaly").textContent = anomalies;
+            }
+
+            let flashIds = new Set();
+
+            function renderTable() {
+                const statusFilter = document.getElementById("f-status").value;
+                const typeFilter = document.getElementById("f-type").value.trim().toLowerCase();
+
+                let list = [...jobs.values()];
+                if (statusFilter) list = list.filter(j => j.status === statusFilter);
+                if (typeFilter) list = list.filter(j => j.type.toLowerCase().includes(typeFilter));
+
+                list.sort((a, b) => {
+                    let av = a[sortKey], bv = b[sortKey];
+                    if (sortKey === "created_at") { av = new Date(av); bv = new Date(bv); }
+                    if (av == null) av = -Infinity;
+                    if (bv == null) bv = -Infinity;
+                    if (av < bv) return -1 * sortDir;
+                    if (av > bv) return 1 * sortDir;
+                    return 0;
+                });
+
+                const tbody = document.getElementById("jobs-tbody");
+                tbody.innerHTML = "";
+                document.getElementById("jobs-empty").style.display = list.length ? "none" : "block";
+
+                list.slice(0, 300).forEach(j => {
+                    const tr = document.createElement("tr");
+                    if (flashIds.has(j.id)) tr.classList.add("flash");
+                    tr.innerHTML = `
+        <td class="job-type">${escapeHtml(j.type)}</td>
+        <td>
+          <span class="pill ${j.status}">${j.status}</span>
+          ${j.is_anomaly ? '<span class="anomaly-tag">⚠ anomaly</span>' : ""}
+        </td>
+        <td>${escapeHtml(j.queue)}</td>
+        <td>${fmtDuration(j)}</td>
+        <td>${fmtTime(j.created_at)}</td>
+        <td class="mono-id">${j.id.slice(0, 8)}…</td>
+      `;
+                    tbody.appendChild(tr);
+                });
+                flashIds.clear();
+            }
+
+            function escapeHtml(s) {
+                return String(s).replace(/[&<>"']/g, c => ({
+                    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+                }[c]));
+            }
+
+            // ------------------------------------------------------------------
+            // DAG graph rendering
+            // ------------------------------------------------------------------
+            function computeDagGroups() {
+                // Union-find over jobs that have depends_on edges (only DAG-submitted jobs)
+                const parent = new Map();
+                function findSimple(x) { let r = x; while (parent.get(r) !== r) r = parent.get(r); return r; }
+                function union(a, b) {
+                    const ra = findSimple(a), rb = findSimple(b);
+                    if (ra !== rb) parent.set(ra, rb);
+                }
+
+                const relevant = new Set();
+                jobs.forEach(j => {
+                    if (j.depends_on && j.depends_on.length) {
+                        relevant.add(j.id);
+                        j.depends_on.forEach(d => relevant.add(d));
+                    }
+                });
+                relevant.forEach(id => { if (!parent.has(id)) parent.set(id, id); });
+                jobs.forEach(j => {
+                    if (j.depends_on) j.depends_on.forEach(d => { if (relevant.has(d)) union(j.id, d); });
+                });
+
+                const groups = new Map(); // root -> [job ids]
+                relevant.forEach(id => {
+                    const root = findSimple(id);
+                    if (!groups.has(root)) groups.set(root, []);
+                    groups.get(root).push(id);
+                });
+                return groups;
+            }
+
+            function renderDagGroupSelect() {
+                const groups = computeDagGroups();
+                const select = document.getElementById("dag-group-select");
+                const prevValue = select.value;
+                select.innerHTML = "";
+
+                const entries = [...groups.entries()].sort((a, b) => {
+                    const ta = Math.max(...a[1].map(id => jobs.has(id) ? new Date(jobs.get(id).created_at).getTime() : 0));
+                    const tb = Math.max(...b[1].map(id => jobs.has(id) ? new Date(jobs.get(id).created_at).getTime() : 0));
+                    return tb - ta;
+                });
+
+                if (entries.length === 0) {
+                    document.getElementById("dag-empty").style.display = "block";
+                    document.getElementById("dag-svg").style.display = "none";
+                    document.getElementById("dag-group-info").textContent = "";
+                    return null;
+                }
+
+                entries.forEach(([root, ids]) => {
+                    const opt = document.createElement("option");
+                    opt.value = root;
+                    const sampleJob = jobs.get(ids[0]);
+                    const t = sampleJob ? fmtTime(sampleJob.created_at) : "";
+                    opt.textContent = `Batch @ ${t} — ${ids.length} jobs`;
+                    select.appendChild(opt);
+                });
+
+                if (prevValue && groups.has(prevValue)) select.value = prevValue;
+                else if (selectedDagGroup) {
+                    for (const [root, ids] of entries) {
+                        if (ids.includes(selectedDagGroup)) { select.value = root; break; }
+                    }
+                }
+                return groups;
+            }
+
+            document.getElementById("dag-group-select").addEventListener("change", renderDagGraph);
+
+            function renderDagGraph() {
+                const groups = renderDagGroupSelect();
+                if (!groups) return;
+
+                const select = document.getElementById("dag-group-select");
+                const root = select.value;
+                const ids = groups.get(root);
+                if (!ids) return;
+
+                document.getElementById("dag-empty").style.display = "none";
+                const svg = document.getElementById("dag-svg");
+                svg.style.display = "block";
+
+                const groupJobs = ids.map(id => jobs.get(id)).filter(Boolean);
+                document.getElementById("dag-group-info").textContent =
+                    groupJobs.filter(j => j.status === "completed").length + " / " + groupJobs.length + " completed";
+
+                const byId = new Map(groupJobs.map(j => [j.id, j]));
+                const depthCache = new Map();
+                function depthOf(j, seen) {
+                    if (depthCache.has(j.id)) return depthCache.get(j.id);
+                    seen = seen || new Set();
+                    if (seen.has(j.id)) return 0;
+                    seen.add(j.id);
+                    const deps = (j.depends_on || []).filter(d => byId.has(d));
+                    if (deps.length === 0) { depthCache.set(j.id, 0); return 0; }
+                    const d = 1 + Math.max(...deps.map(dId => depthOf(byId.get(dId), seen)));
+                    depthCache.set(j.id, d);
+                    return d;
+                }
+                groupJobs.forEach(j => depthOf(j));
+
+                const columns = new Map();
+                groupJobs.forEach(j => {
+                    const d = depthCache.get(j.id);
+                    if (!columns.has(d)) columns.set(d, []);
+                    columns.get(d).push(j);
+                });
+
+                const nodeW = 150, nodeH = 52, colGap = 90, rowGap = 26;
+                const maxCol = Math.max(...columns.keys());
+                const maxRows = Math.max(...[...columns.values()].map(c => c.length));
+                const width = (maxCol + 1) * (nodeW + colGap) - colGap + 40;
+                const height = Math.max(320, maxRows * (nodeH + rowGap) - rowGap + 40);
+
+                svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+                svg.setAttribute("width", Math.min(width, 1100));
+                svg.setAttribute("height", height);
+                svg.innerHTML = "";
+
+                const pos = new Map();
+                columns.forEach((colJobs, depth) => {
+                    const colX = 20 + depth * (nodeW + colGap);
+                    const totalH = colJobs.length * nodeH + (colJobs.length - 1) * rowGap;
+                    const startY = (height - totalH) / 2;
+                    colJobs.forEach((j, i) => {
+                        const y = startY + i * (nodeH + rowGap);
+                        pos.set(j.id, { x: colX, y, w: nodeW, h: nodeH });
+                    });
+                });
+
+                const svgNS = "http://www.w3.org/2000/svg";
+
+                groupJobs.forEach(j => {
+                    (j.depends_on || []).forEach(depId => {
+                        const from = pos.get(depId);
+                        const to = pos.get(j.id);
+                        if (!from || !to) return;
+                        const x1 = from.x + from.w, y1 = from.y + from.h / 2;
+                        const x2 = to.x, y2 = to.y + to.h / 2;
+                        const midX = (x1 + x2) / 2;
+                        const path = document.createElementNS(svgNS, "path");
+                        const depJob = byId.get(depId);
+                        const isActive = depJob && depJob.status === "completed";
+                        path.setAttribute("class", "dag-edge" + (isActive ? " active" : ""));
+                        path.setAttribute("d", `M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`);
+                        svg.appendChild(path);
+                    });
+                });
+
+                groupJobs.forEach(j => {
+                    const p = pos.get(j.id);
+                    const g = document.createElementNS(svgNS, "g");
+
+                    const rect = document.createElementNS(svgNS, "rect");
+                    rect.setAttribute("x", p.x);
+                    rect.setAttribute("y", p.y);
+                    rect.setAttribute("width", p.w);
+                    rect.setAttribute("height", p.h);
+                    rect.setAttribute("class", "dag-node-rect " + j.status);
+                    g.appendChild(rect);
+
+                    const label = document.createElementNS(svgNS, "text");
+                    label.setAttribute("x", p.x + 12);
+                    label.setAttribute("y", p.y + 22);
+                    label.setAttribute("class", "dag-node-label");
+                    label.textContent = j.type.length > 16 ? j.type.slice(0, 15) + "…" : j.type;
+                    g.appendChild(label);
+
+                    const sub = document.createElementNS(svgNS, "text");
+                    sub.setAttribute("x", p.x + 12);
+                    sub.setAttribute("y", p.y + 38);
+                    sub.setAttribute("class", "dag-node-sub");
+                    sub.textContent = j.status + (j.is_anomaly ? "  ⚠" : "");
+                    g.appendChild(sub);
+
+                    svg.appendChild(g);
+                });
+            }
+
+            // ------------------------------------------------------------------
+            // Anomalies panel
+            // ------------------------------------------------------------------
+            function renderAnomalies() {
+                const list = [...jobs.values()].filter(j => j.is_anomaly)
+                    .sort((a, b) => (b.anomaly_score || 0) - (a.anomaly_score || 0));
+
+                document.getElementById("anomaly-count-badge").textContent = list.length ? `${list.length} flagged` : "";
+                const container = document.getElementById("anomaly-list");
+                container.innerHTML = "";
+                document.getElementById("anomaly-empty").style.display = list.length ? "none" : "block";
+
+                const maxScore = Math.max(3, ...list.map(j => j.anomaly_score || 0));
+                list.forEach(j => {
+                    const row = document.createElement("div");
+                    row.className = "anomaly-row";
+                    const pct = Math.min(100, ((j.anomaly_score || 0) / maxScore) * 100);
+                    row.innerHTML = `
+        <div class="anomaly-score-bar">
+          <div class="anomaly-score-track"><div class="anomaly-score-fill" style="width:${pct}%;"></div></div>
+          <div class="anomaly-score-num">z = ${(j.anomaly_score || 0).toFixed(2)}</div>
+        </div>
+        <div class="anomaly-info">
+          <div class="type">${escapeHtml(j.type)} <span class="mono-id">${j.id.slice(0, 8)}…</span></div>
+          <div class="meta">duration ${fmtDuration(j)} · queue ${escapeHtml(j.queue)} · ${fmtTime(j.completed_at)}</div>
+        </div>
+        <span class="pill ${j.status}">${j.status}</span>
+      `;
+                    container.appendChild(row);
+                });
+            }
+
+            // ------------------------------------------------------------------
+            // Toasts
+            // ------------------------------------------------------------------
+            const knownStatus = new Map();
+            function toast(title, sub, kind) {
+                const stack = document.getElementById("toast-stack");
+                const el = document.createElement("div");
+                el.className = "toast" + (kind ? " " + kind : "");
+                el.innerHTML = `<div class="t-title">${escapeHtml(title)}</div><div class="t-sub">${escapeHtml(sub)}</div>`;
+                stack.appendChild(el);
+                while (stack.children.length > 4) stack.removeChild(stack.firstChild);
+                setTimeout(() => {
+                    el.classList.add("out");
+                    setTimeout(() => el.remove(), 260);
+                }, 4200);
+            }
+
+            function maybeToast(job) {
+                const prev = knownStatus.get(job.id);
+                knownStatus.set(job.id, job.status);
+                if (prev === undefined) return;
+                if (prev === job.status) return;
+
+                if (job.status === "completed") {
+                    toast("Job completed", `${job.type} · ${fmtDuration(job)}`, "completed");
+                } else if (job.status === "failed") {
+                    toast("Job failed", `${job.type} · ${job.error || "no error detail"}`, "failed");
+                } else if (job.status === "running") {
+                    toast("Job started", job.type);
+                }
+            }
+
+            // ------------------------------------------------------------------
+            // Job upsert + gauge/stats orchestration
+            // ------------------------------------------------------------------
+            let renderQueued = false;
+            function scheduleRender() {
+                if (renderQueued) return;
+                renderQueued = true;
+                requestAnimationFrame(() => {
+                    renderQueued = false;
+                    renderStats();
+                    renderTable();
+                    if (document.getElementById("view-dag").classList.contains("active")) renderDagGraph();
+                    if (document.getElementById("view-anomalies").classList.contains("active")) renderAnomalies();
+                });
+            }
+
+            function upsertJob(job) {
+                const wasAnomaly = jobs.has(job.id) && jobs.get(job.id).is_anomaly;
+                jobs.set(job.id, job);
+                flashIds.add(job.id);
+                maybeToast(job);
+                if (job.is_anomaly && !wasAnomaly) {
+                    toast("Anomaly detected", `${job.type} ran abnormally slow (z=${(job.anomaly_score || 0).toFixed(2)})`, "anomaly");
+                }
+                scheduleRender();
+            }
+
+            // ------------------------------------------------------------------
+            // Scaler gauge
+            // ------------------------------------------------------------------
+            function updateGauge(s) {
+                const depth = s.depth || 0;
+                const active = s.active || 0;
+                const target = s.target || 0;
+
+                const depthChip = document.getElementById("chip-depth");
+                depthChip.classList.toggle("zero", depth === 0);
+                document.getElementById("val-depth").textContent = depth;
+                document.getElementById("val-pool").innerHTML = `${active} <small>/ ${target}</small>`;
+
+                const pct = target > 0 ? Math.min(100, (active / target) * 100) : (active > 0 ? 100 : 0);
+                document.getElementById("pool-bar").style.width = pct + "%";
+            }
+
+            // ------------------------------------------------------------------
+            // SSE connection
+            // ------------------------------------------------------------------
+            function setConn(state, label) {
+                const dot = document.getElementById("conn-dot");
+                dot.className = "conn-dot" + (state ? " " + state : "");
+                document.getElementById("conn-label").textContent = label;
+            }
+
+            function connect() {
+                setConn("", "connecting…");
+                const es = new EventSource(API + "/jobs/stream");
+
+                es.addEventListener("snapshot", (e) => {
+                    const data = JSON.parse(e.data);
+                    data.forEach(j => { jobs.set(j.id, j); knownStatus.set(j.id, j.status); });
+                    scheduleRender();
+                    setConn("live", "live");
+                });
+
+                es.addEventListener("jobs", (e) => {
+                    const data = JSON.parse(e.data);
+                    data.forEach(upsertJob);
+                });
+
+                es.addEventListener("scaler", (e) => {
+                    const data = JSON.parse(e.data);
+                    updateGauge(data);
+                });
+
+                es.onopen = () => setConn("live", "live");
+                es.onerror = () => {
+                    setConn("error", "reconnecting…");
+                };
+            }
+
+            connect();
+
+            fetch(API + "/scaler/status").then(r => r.json()).then(updateGauge).catch(() => { });
+
+            setInterval(() => {
+                if (document.getElementById("view-jobs").classList.contains("active")) renderTable();
+            }, 1000);
+
+        })();
+    </script>
+</body>
+
+</html>
