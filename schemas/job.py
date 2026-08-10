@@ -139,3 +139,31 @@ class JobBatchResponse(BaseModel):
     their generated job id string instead.
     """
     jobs: dict[str, JobResponse]
+
+
+from typing import Literal, Union
+from pydantic import Field
+
+class BulkRepeatCreate(BaseModel):
+    mode: Literal["repeat"] = "repeat"
+    type: str
+    payload: dict = {}
+    priority: int = 0
+    queue: str = "default"
+    count: int = Field(..., ge=1, le=500)
+
+class BulkListItem(BaseModel):
+    type: str
+    payload: dict = {}
+    priority: int = 0
+    queue: str = "default"
+
+class BulkListCreate(BaseModel):
+    mode: Literal["list"] = "list"
+    jobs: list[BulkListItem] = Field(..., min_length=1, max_length=500)
+
+JobBulkCreate = Union[BulkRepeatCreate, BulkListCreate]
+
+class JobBulkResponse(BaseModel):
+    submitted: int
+    jobs: list[JobResponse]

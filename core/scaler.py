@@ -11,6 +11,7 @@ import redis.asyncio as redis
 from core.worker import STREAM_KEY_TEMPLATE, GROUP_NAME, run_forever
 
 SCALER_STATUS_KEY = "scaler:status"
+SCALER_OVERRIDE_KEY = "scaler:override"
 
 
 async def get_queue_depth(
@@ -103,22 +104,42 @@ async def run_autoscaler(
 
             depth = await get_queue_depth(redis_client, queue)
             active = sum(1 for _t, ev in workers.values() if not ev.is_set())
-            target = decide_target_size(depth, active, min_size, max_size, jobs_per_worker)
 
-            if target > active:
+            override_raw = await redis_client.get(SCALER_OVERRIDE_KEY)
+            manual_override = int(override_raw) if override_raw is not None else None
+
+            if manual_override is not None:
+                # Manual mode: converge to the requested count immediately
+                # (no debounce -- this is an explicit user action, not a
+                # load signal that needs smoothing).
+                target = max(min_size, min(max_size, manual_override))
                 low_ticks = 0
-                _spawn_worker()
-            elif target < active:
-                low_ticks += 1
-                if low_ticks >= scale_down_confirm_ticks:
+                while active < target:
+                    _spawn_worker()
+                    active += 1
+                while active > target:
                     if _signal_one_to_stop():
-                        low_ticks = 0
+                        active -= 1
+                    else:
+                        break
             else:
-                low_ticks = 0
+                target = decide_target_size(depth, active, min_size, max_size, jobs_per_worker)
+
+                if target > active:
+                    low_ticks = 0
+                    _spawn_worker()
+                elif target < active:
+                    low_ticks += 1
+                    if low_ticks >= scale_down_confirm_ticks:
+                        if _signal_one_to_stop():
+                            low_ticks = 0
+                else:
+                    low_ticks = 0
 
             print(
                 f"[scaler] depth={depth} active={active} target={target} "
-                f"pool_size={len(workers)} low_ticks={low_ticks}",
+                f"pool_size={len(workers)} low_ticks={low_ticks} "
+                f"mode={'manual' if manual_override is not None else 'auto'}",
                 flush=True,
             )
 
@@ -131,6 +152,7 @@ async def run_autoscaler(
                         "target": target,
                         "pool_size": len(workers),
                         "updated_at": datetime.now(timezone.utc).isoformat(),
+                        "manual": "1" if manual_override is not None else "0",
                     },
                 )
             except Exception as e:

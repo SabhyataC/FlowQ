@@ -202,6 +202,43 @@
             transition: width .5s ease;
         }
 
+        .gauge-chip.workers-control {
+            min-width: 190px;
+        }
+
+        .mode-tag {
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: .06em;
+            padding: 1px 6px;
+            border-radius: 10px;
+            margin-left: 6px;
+            background: var(--panel-border);
+            color: var(--text-dim);
+        }
+
+        .mode-tag.manual {
+            background: var(--amber-dim);
+            color: var(--amber);
+        }
+
+        .workers-control-row {
+            display: flex;
+            gap: 6px;
+            margin-top: 4px;
+        }
+
+        .workers-control-row input[type=number] {
+            width: 64px;
+            padding: 5px 7px;
+            font-size: 11px;
+        }
+
+        .workers-control-row .btn-sm {
+            padding: 5px 8px;
+            font-size: 10px;
+        }
+
         /* ---------- layout grid ---------- */
         .grid {
             display: grid;
@@ -263,6 +300,38 @@
         }
 
         .tab-btn.active {
+            background: var(--panel-border);
+            color: var(--text);
+        }
+
+        .payload-preview {
+            background: var(--panel-2);
+            border: 1px solid var(--panel-border);
+            border-radius: 6px;
+            padding: 8px 9px;
+            font-size: 11px;
+            color: var(--text-dim);
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-height: 140px;
+            overflow-y: auto;
+            margin: 0;
+        }
+
+        .bulk-mode-btn {
+            flex: 1;
+            background: none;
+            border: none;
+            color: var(--text-dim);
+            font-family: var(--mono);
+            font-size: 11px;
+            padding: 7px 4px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all .15s ease;
+        }
+
+        .bulk-mode-btn.active {
             background: var(--panel-border);
             color: var(--text);
         }
@@ -395,6 +464,27 @@
             border-radius: 4px;
             margin-bottom: 6px;
             font-weight: 600;
+        }
+
+        .row-delete {
+            background: none;
+            border: none;
+            color: var(--text-dimmer);
+            cursor: pointer;
+            font-size: 13px;
+            line-height: 1;
+            padding: 2px 6px;
+            border-radius: 4px;
+            transition: color .15s ease;
+        }
+
+        .row-delete:hover {
+            color: var(--red);
+        }
+
+        .row-delete:disabled {
+            color: var(--locked);
+            cursor: not-allowed;
         }
 
         .chip-multiselect {
@@ -820,10 +910,49 @@
             font-weight: 600;
         }
 
+        .anomaly-severity {
+            display: inline-block;
+            font-size: 9px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: .03em;
+            padding: 1px 6px;
+            border-radius: 10px;
+            margin-left: 6px;
+            vertical-align: middle;
+        }
+
+        .anomaly-severity.sev-mild {
+            background: var(--amber-dim);
+            color: var(--amber);
+        }
+
+        .anomaly-severity.sev-moderate {
+            background: var(--amber-dim);
+            color: var(--amber);
+        }
+
+        .anomaly-severity.sev-high {
+            background: var(--red-dim);
+            color: var(--red);
+        }
+
+        .anomaly-severity.sev-critical {
+            background: var(--red-dim);
+            color: var(--red);
+        }
+
+        .anomaly-info .reason {
+            font-size: 11px;
+            color: var(--text);
+            margin-top: 4px;
+            line-height: 1.4;
+        }
+
         .anomaly-info .meta {
             font-size: 10px;
             color: var(--text-dim);
-            margin-top: 2px;
+            margin-top: 4px;
         }
 
         /* ---------- toasts ---------- */
@@ -933,6 +1062,15 @@
                             <div class="pool-bar-fill" id="pool-bar"></div>
                         </div>
                     </div>
+                    <div class="gauge-chip workers-control">
+                        <div class="label">Worker pool <span id="scaler-mode-tag" class="mode-tag auto">auto</span>
+                        </div>
+                        <div class="workers-control-row">
+                            <input type="number" id="worker-target-input" min="0" max="50" placeholder="target">
+                            <button class="btn btn-ghost btn-sm" id="worker-target-set">Set</button>
+                            <button class="btn btn-ghost btn-sm" id="worker-target-auto">Auto</button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </header>
@@ -944,16 +1082,28 @@
                 <h2>Submit work</h2>
                 <div class="tabs">
                     <button class="tab-btn active" data-tab="single">Single job</button>
+                    <button class="tab-btn" data-tab="bulk">Bulk</button>
                     <button class="tab-btn" data-tab="dag">DAG batch</button>
                 </div>
 
                 <!-- Single job form -->
                 <div id="tab-single">
                     <label>Type</label>
-                    <input type="text" id="s-type" placeholder="e.g. resize_image" value="demo_job">
+                    <select id="s-type-select"></select>
 
-                    <label>Payload (JSON)</label>
-                    <textarea id="s-payload">{"_sleep_seconds": 2}</textarea>
+                    <div id="s-dynamic-fields"></div>
+
+                    <!-- Custom/raw JSON mode -->
+                    <div id="s-custom-wrap" style="display:none;">
+                        <label>Type name</label>
+                        <input type="text" id="s-custom-type" placeholder="e.g. my_custom_job" value="demo_job">
+
+                        <label>Payload (JSON)</label>
+                        <textarea id="s-payload">{"_sleep_seconds": 2}</textarea>
+                    </div>
+
+                    <label style="margin-top:12px;">Payload preview</label>
+                    <pre id="s-payload-preview" class="payload-preview"></pre>
 
                     <div class="row-2">
                         <div>
@@ -972,6 +1122,49 @@
 
                     <button class="btn btn-primary btn-block" id="s-submit">Submit job</button>
                     <div class="form-msg" id="s-msg"></div>
+                </div>
+
+                <!-- Bulk submit form -->
+                <div id="tab-bulk" style="display:none;">
+                    <div class="tabs" style="margin-bottom:10px;">
+                        <button class="bulk-mode-btn active" data-mode="repeat">Repeat</button>
+                        <button class="bulk-mode-btn" data-mode="list">List</button>
+                    </div>
+
+                    <!-- Repeat mode -->
+                    <div id="bulk-repeat">
+                        <label>Type</label>
+                        <input type="text" id="b-type" placeholder="e.g. resize_image" value="demo_job">
+
+                        <label>Payload (JSON)</label>
+                        <textarea id="b-payload">{"_sleep_seconds": 2}</textarea>
+
+                        <div class="row-2">
+                            <div>
+                                <label>Priority</label>
+                                <input type="number" id="b-priority" value="0" min="0">
+                            </div>
+                            <div>
+                                <label>Queue</label>
+                                <input type="text" id="b-queue" value="default">
+                            </div>
+                        </div>
+
+                        <label>Count</label>
+                        <input type="number" id="b-count" value="5" min="1" max="500">
+                    </div>
+
+                    <!-- List mode -->
+                    <div id="bulk-list" style="display:none;">
+                        <label>Jobs (JSON array)</label>
+                        <textarea id="b-list" style="min-height:140px;">[
+  {"type": "resize_image", "payload": {"_sleep_seconds": 2}},
+  {"type": "send_email", "payload": {"_sleep_seconds": 1}}
+]</textarea>
+                    </div>
+
+                    <button class="btn btn-primary btn-block" id="bulk-submit">Submit bulk jobs</button>
+                    <div class="form-msg" id="bulk-msg"></div>
                 </div>
 
                 <!-- DAG batch form -->
@@ -1045,6 +1238,7 @@
                                     <th data-sort="duration_seconds">Duration</th>
                                     <th data-sort="created_at">Created</th>
                                     <th>Id</th>
+                                    <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="jobs-tbody"></tbody>
@@ -1091,6 +1285,159 @@
             let selectedDagGroup = null;
 
             // ------------------------------------------------------------------
+            // Job type registry — known types get structured fields;
+            // "custom" falls back to free-text type + raw JSON.
+            // ------------------------------------------------------------------
+            const JOB_TYPE_REGISTRY = {
+                demo_job: {
+                    label: "Demo job (sleep)",
+                    fields: [
+                        { key: "_sleep_seconds", label: "Sleep seconds", type: "number", default: 2, min: 0, step: 0.5, required: true },
+                    ],
+                },
+                resize_image: {
+                    label: "Resize image",
+                    fields: [
+                        { key: "url", label: "Image URL", type: "text", default: "", placeholder: "https://…", required: true },
+                        { key: "width", label: "Width (px)", type: "number", default: 800, min: 1, required: true },
+                        { key: "height", label: "Height (px)", type: "number", default: 600, min: 1, required: true },
+                    ],
+                },
+                send_email: {
+                    label: "Send email",
+                    fields: [
+                        { key: "to", label: "To", type: "text", default: "", placeholder: "user@example.com", required: true },
+                        { key: "subject", label: "Subject", type: "text", default: "", required: true },
+                        { key: "body", label: "Body", type: "textarea", default: "", required: false },
+                    ],
+                },
+                fetch_data: {
+                    label: "Fetch data",
+                    fields: [
+                        { key: "url", label: "Source URL", type: "text", default: "", placeholder: "https://…", required: true },
+                        { key: "timeout_seconds", label: "Timeout (s)", type: "number", default: 30, min: 1, required: false },
+                    ],
+                },
+                process_data: {
+                    label: "Process data",
+                    fields: [
+                        { key: "dataset_id", label: "Dataset id", type: "text", default: "", required: true },
+                        { key: "operation", label: "Operation", type: "select", options: ["transform", "aggregate", "validate"], default: "transform", required: true },
+                    ],
+                },
+                notify: {
+                    label: "Notify",
+                    fields: [
+                        { key: "channel", label: "Channel", type: "select", options: ["email", "slack", "webhook"], default: "slack", required: true },
+                        { key: "message", label: "Message", type: "textarea", default: "", required: true },
+                    ],
+                },
+                custom: {
+                    label: "Custom (raw JSON)",
+                    fields: null,
+                },
+            };
+
+            const typeSelect = document.getElementById("s-type-select");
+            Object.entries(JOB_TYPE_REGISTRY).forEach(([key, def]) => {
+                const opt = document.createElement("option");
+                opt.value = key;
+                opt.textContent = def.label;
+                typeSelect.appendChild(opt);
+            });
+
+            function renderDynamicFields(typeKey) {
+                const def = JOB_TYPE_REGISTRY[typeKey];
+                const container = document.getElementById("s-dynamic-fields");
+                const customWrap = document.getElementById("s-custom-wrap");
+                container.innerHTML = "";
+
+                if (!def || !def.fields) {
+                    customWrap.style.display = "block";
+                    updatePayloadPreview();
+                    return;
+                }
+                customWrap.style.display = "none";
+
+                def.fields.forEach(f => {
+                    const label = document.createElement("label");
+                    label.textContent = f.label + (f.required ? " *" : "");
+                    container.appendChild(label);
+
+                    let input;
+                    if (f.type === "select") {
+                        input = document.createElement("select");
+                        f.options.forEach(o => {
+                            const opt = document.createElement("option");
+                            opt.value = o;
+                            opt.textContent = o;
+                            input.appendChild(opt);
+                        });
+                        input.value = f.default;
+                    } else if (f.type === "textarea") {
+                        input = document.createElement("textarea");
+                        input.style.minHeight = "50px";
+                        input.value = f.default;
+                    } else {
+                        input = document.createElement("input");
+                        input.type = f.type === "number" ? "number" : "text";
+                        if (f.min !== undefined) input.min = f.min;
+                        if (f.step !== undefined) input.step = f.step;
+                        if (f.placeholder) input.placeholder = f.placeholder;
+                        input.value = f.default;
+                    }
+                    input.dataset.fieldKey = f.key;
+                    input.className = "s-dyn-field";
+                    input.addEventListener("input", updatePayloadPreview);
+                    input.addEventListener("change", updatePayloadPreview);
+                    container.appendChild(input);
+                });
+
+                updatePayloadPreview();
+            }
+
+            function collectDynamicPayload() {
+                const def = JOB_TYPE_REGISTRY[typeSelect.value];
+                if (!def || !def.fields) return null;
+                const payload = {};
+                const missing = [];
+                document.querySelectorAll("#s-dynamic-fields .s-dyn-field").forEach(input => {
+                    const key = input.dataset.fieldKey;
+                    const fieldDef = def.fields.find(f => f.key === key);
+                    let val = input.value;
+                    if (fieldDef.type === "number") {
+                        val = val === "" ? null : Number(val);
+                    }
+                    if (fieldDef.required && (val === "" || val === null || val === undefined)) {
+                        missing.push(fieldDef.label);
+                    }
+                    payload[key] = val;
+                });
+                return { payload, missing };
+            }
+
+            function updatePayloadPreview() {
+                const preview = document.getElementById("s-payload-preview");
+                if (typeSelect.value === "custom") {
+                    try {
+                        const parsed = JSON.parse(document.getElementById("s-payload").value || "{}");
+                        preview.textContent = JSON.stringify(parsed, null, 2);
+                    } catch (e) {
+                        preview.textContent = "(invalid JSON)";
+                    }
+                    return;
+                }
+                const { payload } = collectDynamicPayload();
+                preview.textContent = JSON.stringify(payload, null, 2);
+            }
+
+            typeSelect.addEventListener("change", () => renderDynamicFields(typeSelect.value));
+            document.getElementById("s-payload").addEventListener("input", updatePayloadPreview);
+
+            renderDynamicFields(typeSelect.value);
+
+
+            // ------------------------------------------------------------------
             // Tabs (submission form)
             // ------------------------------------------------------------------
             document.querySelectorAll(".tab-btn").forEach(btn => {
@@ -1100,6 +1447,7 @@
                     const tab = btn.dataset.tab;
                     document.getElementById("tab-single").style.display = tab === "single" ? "block" : "none";
                     document.getElementById("tab-dag").style.display = tab === "dag" ? "block" : "none";
+                    document.getElementById("tab-bulk").style.display = tab === "bulk" ? "block" : "none";
                 });
             });
 
@@ -1122,16 +1470,31 @@
             document.getElementById("s-submit").addEventListener("click", async () => {
                 const msg = document.getElementById("s-msg");
                 msg.className = "form-msg";
+
+                const typeKey = typeSelect.value;
+                const def = JOB_TYPE_REGISTRY[typeKey];
+
                 let payload;
-                try {
-                    payload = JSON.parse(document.getElementById("s-payload").value || "{}");
-                } catch (e) {
-                    msg.textContent = "Payload isn't valid JSON: " + e.message;
-                    msg.className = "form-msg err show";
-                    return;
+                if (!def || !def.fields) {
+                    try {
+                        payload = JSON.parse(document.getElementById("s-payload").value || "{}");
+                    } catch (e) {
+                        msg.textContent = "Payload isn't valid JSON: " + e.message;
+                        msg.className = "form-msg err show";
+                        return;
+                    }
+                } else {
+                    const { payload: collected, missing } = collectDynamicPayload();
+                    if (missing.length) {
+                        msg.textContent = `Missing required field${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}`;
+                        msg.className = "form-msg err show";
+                        return;
+                    }
+                    payload = collected;
                 }
+
                 const body = {
-                    type: document.getElementById("s-type").value.trim(),
+                    type: typeKey === "custom" ? document.getElementById("s-custom-type").value.trim() : typeKey,
                     payload,
                     priority: parseInt(document.getElementById("s-priority").value || "0", 10),
                     queue: document.getElementById("s-queue").value.trim() || "default",
@@ -1161,6 +1524,98 @@
                     msg.className = "form-msg err show";
                 }
             });
+
+            // Bulk mode sub-toggle (repeat vs list)
+            document.querySelectorAll(".bulk-mode-btn").forEach(btn => {
+                btn.addEventListener("click", () => {
+                    document.querySelectorAll(".bulk-mode-btn").forEach(b => b.classList.remove("active"));
+                    btn.classList.add("active");
+                    const mode = btn.dataset.mode;
+                    document.getElementById("bulk-repeat").style.display = mode === "repeat" ? "block" : "none";
+                    document.getElementById("bulk-list").style.display = mode === "list" ? "block" : "none";
+                });
+            });
+
+            // ------------------------------------------------------------------
+            // Bulk submit
+            // ------------------------------------------------------------------
+            document.getElementById("bulk-submit").addEventListener("click", async () => {
+                const msg = document.getElementById("bulk-msg");
+                msg.className = "form-msg";
+                const mode = document.querySelector(".bulk-mode-btn.active").dataset.mode;
+
+                let body;
+                if (mode === "repeat") {
+                    let payload;
+                    try {
+                        payload = JSON.parse(document.getElementById("b-payload").value || "{}");
+                    } catch (e) {
+                        msg.textContent = "Payload isn't valid JSON: " + e.message;
+                        msg.className = "form-msg err show";
+                        return;
+                    }
+                    const type = document.getElementById("b-type").value.trim();
+                    if (!type) {
+                        msg.textContent = "Type is required.";
+                        msg.className = "form-msg err show";
+                        return;
+                    }
+                    const count = parseInt(document.getElementById("b-count").value || "0", 10);
+                    if (!count || count < 1) {
+                        msg.textContent = "Count must be at least 1.";
+                        msg.className = "form-msg err show";
+                        return;
+                    }
+                    body = {
+                        mode: "repeat",
+                        type,
+                        payload,
+                        priority: parseInt(document.getElementById("b-priority").value || "0", 10),
+                        queue: document.getElementById("b-queue").value.trim() || "default",
+                        count,
+                    };
+                } else {
+                    let jobsList;
+                    try {
+                        jobsList = JSON.parse(document.getElementById("b-list").value || "[]");
+                    } catch (e) {
+                        msg.textContent = "Jobs list isn't valid JSON: " + e.message;
+                        msg.className = "form-msg err show";
+                        return;
+                    }
+                    if (!Array.isArray(jobsList) || jobsList.length === 0) {
+                        msg.textContent = "Provide a non-empty JSON array of jobs.";
+                        msg.className = "form-msg err show";
+                        return;
+                    }
+                    for (const [i, j] of jobsList.entries()) {
+                        if (!j || typeof j.type !== "string" || !j.type.trim()) {
+                            msg.textContent = `Job at index ${i} is missing a "type".`;
+                            msg.className = "form-msg err show";
+                            return;
+                        }
+                    }
+                    body = { mode: "list", jobs: jobsList };
+                }
+
+                try {
+                    const res = await fetch(API + "/jobs/bulk", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(body),
+                    });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.detail ? JSON.stringify(data.detail) : res.status);
+                    data.jobs.forEach(upsertJob);
+                    msg.textContent = `Submitted ${data.submitted} job${data.submitted === 1 ? "" : "s"}.`;
+                    msg.className = "form-msg ok show";
+                } catch (e) {
+                    msg.textContent = "Failed: " + e.message;
+                    msg.className = "form-msg err show";
+                }
+            });
+
+
 
             // ------------------------------------------------------------------
             // DAG batch builder
@@ -1393,12 +1848,13 @@
         <td class="job-type">${escapeHtml(j.type)}</td>
         <td>
           <span class="pill ${j.status}">${j.status}</span>
-          ${j.is_anomaly ? '<span class="anomaly-tag">⚠ anomaly</span>' : ""}
+          ${j.is_anomaly ? `<span class="anomaly-tag" title="${escapeHtml(describeAnomaly(j).text)}">⚠ anomaly</span>` : ""}
         </td>
         <td>${escapeHtml(j.queue)}</td>
         <td>${fmtDuration(j)}</td>
         <td>${fmtTime(j.created_at)}</td>
         <td class="mono-id">${j.id.slice(0, 8)}…</td>
+        <td><button class="row-delete" data-id="${j.id}" ${["blocked", "completed", "failed"].includes(j.status) ? "" : "disabled"} title="${["blocked", "completed", "failed"].includes(j.status) ? "Delete job" : "Only blocked, completed, or failed jobs can be deleted"}">✕</button></td>
       `;
                     tbody.appendChild(tr);
                 });
@@ -1410,6 +1866,32 @@
                     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
                 }[c]));
             }
+
+            // ------------------------------------------------------------------
+            // Delete job
+            // ------------------------------------------------------------------
+            async function deleteJob(jobId) {
+                if (!confirm("Delete this job? This can't be undone.")) return;
+                try {
+                    const res = await fetch(API + "/jobs/" + jobId, { method: "DELETE" });
+                    if (!res.ok) {
+                        const data = await res.json().catch(() => ({}));
+                        throw new Error(data.detail || res.status);
+                    }
+                    jobs.delete(jobId);
+                    knownStatus.delete(jobId);
+                    scheduleRender();
+                    toast("Job deleted", jobId.slice(0, 8) + "…");
+                } catch (e) {
+                    toast("Delete failed", e.message, "failed");
+                }
+            }
+
+            document.getElementById("jobs-tbody").addEventListener("click", (e) => {
+                const btn = e.target.closest(".row-delete");
+                if (!btn || btn.disabled) return;
+                deleteJob(btn.dataset.id);
+            });
 
             // ------------------------------------------------------------------
             // DAG graph rendering
@@ -1594,6 +2076,68 @@
             }
 
             // ------------------------------------------------------------------
+            // Anomaly reasoning
+            // ------------------------------------------------------------------
+            // Builds a mean/stddev baseline for a job type from other completed
+            // jobs of the same type currently known to the client, so we can
+            // explain *why* something was flagged instead of just showing z.
+            function typeBaselineStats(type, excludeId) {
+                const durations = [];
+                jobs.forEach(j => {
+                    if (j.type === type && j.id !== excludeId && j.status === "completed" && j.duration_seconds != null) {
+                        durations.push(j.duration_seconds);
+                    }
+                });
+                const n = durations.length;
+                if (n === 0) return null;
+                const mean = durations.reduce((a, b) => a + b, 0) / n;
+                const variance = durations.reduce((a, b) => a + (b - mean) ** 2, 0) / n;
+                return { mean, std: Math.sqrt(variance), n };
+            }
+
+            function severityFor(z) {
+                const az = Math.abs(z);
+                if (az >= 5) return { label: "extremely unusual", cls: "sev-critical" };
+                if (az >= 4) return { label: "highly unusual", cls: "sev-high" };
+                if (az >= 3) return { label: "moderately unusual", cls: "sev-moderate" };
+                return { label: "somewhat unusual", cls: "sev-mild" };
+            }
+
+            // Turns a flagged job into a plain-language explanation, falling
+            // back gracefully when there isn't enough history for this type yet.
+            function describeAnomaly(job) {
+                const z = job.anomaly_score || 0;
+                const sev = severityFor(z);
+                const stats = typeBaselineStats(job.type, job.id);
+
+                if (job.duration_seconds != null && stats && stats.n >= 2 && stats.mean > 0) {
+                    const ratio = job.duration_seconds / stats.mean;
+                    const ratioText = ratio >= 1.1
+                        ? `${ratio.toFixed(1)}× slower than usual`
+                        : ratio <= 0.9
+                            ? `${ratio.toFixed(1)}× faster than usual`
+                            : "close to its usual pace";
+                    return {
+                        label: sev.label,
+                        cls: sev.cls,
+                        text: `Took ${job.duration_seconds.toFixed(1)}s vs a ${stats.mean.toFixed(1)}s average over the last ${stats.n} "${job.type}" run${stats.n === 1 ? "" : "s"} (±${stats.std.toFixed(1)}s) — ${ratioText}.`
+                    };
+                }
+                if (job.duration_seconds != null) {
+                    return {
+                        label: sev.label,
+                        cls: sev.cls,
+                        text: `Took ${job.duration_seconds.toFixed(1)}s — ${sev.label} for "${job.type}", but there isn't enough completed history for this type yet to compare against directly.`
+                    };
+                }
+                return {
+                    label: sev.label,
+                    cls: sev.cls,
+                    text: `Flagged as ${sev.label} for "${job.type}" based on its behavior so far.`
+                };
+            }
+
+            // ------------------------------------------------------------------
             // Anomalies panel
             // ------------------------------------------------------------------
             function renderAnomalies() {
@@ -1610,13 +2154,15 @@
                     const row = document.createElement("div");
                     row.className = "anomaly-row";
                     const pct = Math.min(100, ((j.anomaly_score || 0) / maxScore) * 100);
+                    const reason = describeAnomaly(j);
                     row.innerHTML = `
         <div class="anomaly-score-bar">
           <div class="anomaly-score-track"><div class="anomaly-score-fill" style="width:${pct}%;"></div></div>
-          <div class="anomaly-score-num">z = ${(j.anomaly_score || 0).toFixed(2)}</div>
+          <div class="anomaly-score-num" title="raw anomaly score (z-score)">z ${(j.anomaly_score || 0).toFixed(2)}</div>
         </div>
         <div class="anomaly-info">
-          <div class="type">${escapeHtml(j.type)} <span class="mono-id">${j.id.slice(0, 8)}…</span></div>
+          <div class="type">${escapeHtml(j.type)} <span class="mono-id">${j.id.slice(0, 8)}…</span><span class="anomaly-severity ${reason.cls}">${escapeHtml(reason.label)}</span></div>
+          <div class="reason">${escapeHtml(reason.text)}</div>
           <div class="meta">duration ${fmtDuration(j)} · queue ${escapeHtml(j.queue)} · ${fmtTime(j.completed_at)}</div>
         </div>
         <span class="pill ${j.status}">${j.status}</span>
@@ -1679,7 +2225,8 @@
                 flashIds.add(job.id);
                 maybeToast(job);
                 if (job.is_anomaly && !wasAnomaly) {
-                    toast("Anomaly detected", `${job.type} ran abnormally slow (z=${(job.anomaly_score || 0).toFixed(2)})`, "anomaly");
+                    const reason = describeAnomaly(job);
+                    toast("Anomaly detected", `${job.type}: ${reason.text}`, "anomaly");
                 }
                 scheduleRender();
             }
@@ -1688,9 +2235,10 @@
             // Scaler gauge
             // ------------------------------------------------------------------
             function updateGauge(s) {
-                const depth = s.depth || 0;
-                const active = s.active || 0;
-                const target = s.target || 0;
+                const depth = Number(s.depth) || 0;
+                const active = Number(s.active) || 0;
+                const target = Number(s.target) || 0;
+                const manual = s.manual === "1" || s.manual === 1 || s.manual === true;
 
                 const depthChip = document.getElementById("chip-depth");
                 depthChip.classList.toggle("zero", depth === 0);
@@ -1699,7 +2247,53 @@
 
                 const pct = target > 0 ? Math.min(100, (active / target) * 100) : (active > 0 ? 100 : 0);
                 document.getElementById("pool-bar").style.width = pct + "%";
+
+                const modeTag = document.getElementById("scaler-mode-tag");
+                modeTag.textContent = manual ? "manual" : "auto";
+                modeTag.classList.toggle("manual", manual);
+
+                const targetInput = document.getElementById("worker-target-input");
+                if (document.activeElement !== targetInput) {
+                    targetInput.placeholder = String(target);
+                }
             }
+
+            // ------------------------------------------------------------------
+            // Manual worker pool control
+            // ------------------------------------------------------------------
+            document.getElementById("worker-target-set").addEventListener("click", async () => {
+                const input = document.getElementById("worker-target-input");
+                const count = parseInt(input.value, 10);
+                if (isNaN(count) || count < 0) {
+                    toast("Invalid worker count", "Enter a number >= 0", "failed");
+                    return;
+                }
+                try {
+                    const res = await fetch(API + "/scaler/target", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ count }),
+                    });
+                    if (!res.ok) throw new Error("request failed: " + res.status);
+                    toast("Worker pool set", `Targeting ${count} worker${count === 1 ? "" : "s"}`);
+                } catch (e) {
+                    toast("Failed to set worker count", e.message, "failed");
+                }
+            });
+
+            document.getElementById("worker-target-auto").addEventListener("click", async () => {
+                try {
+                    const res = await fetch(API + "/scaler/target", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ count: null }),
+                    });
+                    if (!res.ok) throw new Error("request failed: " + res.status);
+                    toast("Autoscaling resumed", "Pool size now follows queue depth");
+                } catch (e) {
+                    toast("Failed to resume autoscaling", e.message, "failed");
+                }
+            });
 
             // ------------------------------------------------------------------
             // SSE connection

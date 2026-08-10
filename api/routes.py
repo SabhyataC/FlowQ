@@ -11,12 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db.connection import get_db, AsyncSessionLocal
 from db.redis_client import get_redis
 from db.models import Job, JobStatus
-from schemas.job import JobCreate, JobResponse, JobBatchCreate, JobBatchResponse
 from core.queue import enqueue, enqueue_batch
-from core.scaler import SCALER_STATUS_KEY
+from core.scaler import SCALER_STATUS_KEY, SCALER_OVERRIDE_KEY
 from core.dag import DAGValidationError
 from typing import Optional
 from sqlalchemy import select
+from schemas.job import JobCreate, JobResponse, JobBatchCreate, JobBatchResponse, JobBulkCreate, JobBulkResponse
+from pydantic import BaseModel
 
 router = APIRouter()
 
@@ -83,11 +84,6 @@ async def list_jobs(
 
 @router.get("/scaler/status")
 async def scaler_status(redis_client: redis.Redis = Depends(get_redis)):
-    """
-    Live autoscaler snapshot (queue depth, active/target/pool size),
-    written by core/scaler.py's run_autoscaler() on each tick. Returns
-    all-zero defaults if the scaler process isn't running yet.
-    """
     data = await redis_client.hgetall(SCALER_STATUS_KEY)
     return {
         "depth": int(data.get("depth", 0)),
@@ -96,7 +92,34 @@ async def scaler_status(redis_client: redis.Redis = Depends(get_redis)):
         "pool_size": int(data.get("pool_size", 0)),
         "updated_at": data.get("updated_at"),
         "running": bool(data),
+        "manual": data.get("manual") == "1",
     }
+
+
+class ScalerTargetRequest(BaseModel):
+    count: Optional[int] = None  # None releases the override -> autoscaler resumes
+
+
+@router.post("/scaler/target")
+async def set_scaler_target(
+    body: ScalerTargetRequest,
+    redis_client: redis.Redis = Depends(get_redis),
+):
+    """
+    Manually pin the worker pool size. Set `count` to override the
+    autoscaler (clamped to its configured min/max on the next tick);
+    omit it or pass null to release the override and let the
+    autoscaler resume deciding based on queue depth.
+    """
+    if body.count is None:
+        await redis_client.delete(SCALER_OVERRIDE_KEY)
+        return {"override": None}
+
+    if body.count < 0:
+        raise HTTPException(status_code=422, detail="count must be >= 0")
+
+    await redis_client.set(SCALER_OVERRIDE_KEY, str(body.count))
+    return {"override": body.count}
 
 
 @router.get("/jobs/stream")
@@ -160,6 +183,34 @@ async def stream_jobs(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+@router.post("/jobs/bulk", response_model=JobBulkResponse, status_code=201)
+async def submit_job_bulk(
+    bulk: JobBulkCreate,
+    db: AsyncSession = Depends(get_db),
+    redis_client: redis.Redis = Depends(get_redis),
+):
+    """
+    Submit multiple independent jobs at once (no DAG dependencies between them).
+    - mode="repeat": N copies of the same type/payload
+    - mode="list": a list of jobs, each with its own type/payload
+    Reuses the existing single-job enqueue() per job, so idempotency-key
+    handling and anomaly-stat wiring behave identically to POST /jobs.
+    """
+    if bulk.mode == "repeat":
+        specs = [
+            JobCreate(type=bulk.type, payload=bulk.payload, priority=bulk.priority, queue=bulk.queue)
+            for _ in range(bulk.count)
+        ]
+    else:
+        specs = [
+            JobCreate(type=j.type, payload=j.payload, priority=j.priority, queue=j.queue)
+            for j in bulk.jobs
+        ]
+
+    created = [await enqueue(db, redis_client, spec) for spec in specs]
+    return JobBulkResponse(submitted=len(created), jobs=created)
+
 @router.get("/jobs/{job_id}", response_model=JobResponse)
 async def get_job_status(
     job_id: uuid.UUID,
@@ -175,6 +226,39 @@ async def get_job_status(
         raise HTTPException(status_code=404, detail="Job not found")
 
     return job
+
+@router.delete("/jobs/{job_id}", status_code=204)
+async def delete_job(
+    job_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Delete a job from the dashboard.
+
+    Only allowed for jobs that are safely removable without touching the
+    Redis stream:
+      - BLOCKED: never pushed to a stream (still waiting on a dependency)
+      - COMPLETED / FAILED: already fully processed and off the stream
+
+    PENDING jobs are currently sitting in a Redis stream waiting for a
+    worker to claim them -- deleting the DB row without also removing
+    the stream entry could let a worker pop a job_id that no longer
+    exists. RUNNING jobs are actively being processed. Both return 409
+    rather than silently doing something unsafe.
+    """
+    job = await db.get(Job, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if job.status not in (JobStatus.BLOCKED, JobStatus.COMPLETED, JobStatus.FAILED):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete a job with status '{job.status.value}'. "
+                   f"Only blocked, completed, or failed jobs can be deleted.",
+        )
+
+    await db.delete(job)
+    await db.commit()
 
 
 @router.post("/jobs/batch", response_model=JobBatchResponse, status_code=201)
