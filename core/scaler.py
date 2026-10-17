@@ -12,6 +12,7 @@ from core.worker import STREAM_KEY_TEMPLATE, GROUP_NAME, run_forever
 
 SCALER_STATUS_KEY = "scaler:status"
 SCALER_OVERRIDE_KEY = "scaler:override"
+SCALER_KILL_CHANNEL = "scaler:kill"
 
 
 async def get_queue_depth(
@@ -65,6 +66,7 @@ async def run_autoscaler(
     scale_down_confirm_ticks: int = 3,
 ) -> None:
     workers: dict[str, tuple[asyncio.Task, asyncio.Event]] = {}
+    killed_ids: set[str] = set()
 
     def _spawn_worker() -> None:
         worker_id = f"worker-{uuid.uuid4().hex[:8]}"
@@ -87,11 +89,53 @@ async def run_autoscaler(
         done_ids = [wid for wid, (task, _ev) in workers.items() if task.done()]
         for worker_id in done_ids:
             task, _ev = workers.pop(worker_id)
-            if not task.cancelled() and task.exception() is not None:
+            if worker_id in killed_ids:
+                killed_ids.discard(worker_id)
+                print(f"[scaler] KILLED {worker_id} torn down mid-job (demo trigger, pool size {len(workers)})", flush=True)
+            elif not task.cancelled() and task.exception() is not None:
                 print(f"[scaler] {worker_id} exited with error: {task.exception()}", flush=True)
             else:
                 print(f"[scaler] {worker_id} stopped cleanly (pool size {len(workers)})", flush=True)
 
+    async def _listen_for_kill_signals() -> None:
+        """
+        Subscribes to SCALER_KILL_CHANNEL. The API publishes a worker_id
+        here (looked up from Job.worker_id) when the dashboard's kill
+        button is used. Unlike _signal_one_to_stop, this cancels the
+        task immediately -- mid-job -- rather than waiting for it to
+        finish its current job first.
+        """
+        pubsub = redis_client.pubsub()
+        await pubsub.subscribe(SCALER_KILL_CHANNEL)
+        print(f"[scaler] kill listener subscribed to '{SCALER_KILL_CHANNEL}'", flush=True)
+        try:
+            async for message in pubsub.listen():
+                if message["type"] != "message":
+                    continue
+                worker_id = message["data"]
+                if isinstance(worker_id, bytes):
+                    worker_id = worker_id.decode()
+                entry = workers.get(worker_id)
+                if entry is None:
+                    print(f"[scaler] kill signal for unknown/already-gone {worker_id}", flush=True)
+                    continue
+                task, _stop_event = entry
+                killed_ids.add(worker_id)
+                task.cancel()
+                print(f"[scaler] KILL  {worker_id} cancel requested (demo trigger)", flush=True)
+        finally:
+            await pubsub.unsubscribe(SCALER_KILL_CHANNEL)
+            await pubsub.close()
+
+    def _log_kill_listener_crash(task: asyncio.Task) -> None:
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            print(f"[scaler] kill listener died: {exc!r}", flush=True)
+
+    kill_listener_task = asyncio.create_task(_listen_for_kill_signals())
+    kill_listener_task.add_done_callback(_log_kill_listener_crash)
     for _ in range(min_size):
         _spawn_worker()
 
@@ -158,10 +202,12 @@ async def run_autoscaler(
             except Exception as e:
                 print(f"[scaler] status publish failed (non-fatal): {e}", flush=True)
     except asyncio.CancelledError:
+        kill_listener_task.cancel()
         for _task, stop_event in workers.values():
             stop_event.set()
         if workers:
             await asyncio.gather(*(t for t, _ev in workers.values()), return_exceptions=True)
+        await asyncio.gather(kill_listener_task, return_exceptions=True)
         raise
 
 

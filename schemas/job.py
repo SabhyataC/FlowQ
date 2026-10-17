@@ -111,6 +111,7 @@ class JobResponse(BaseModel):
 
     worker_id: Optional[str] = None
     max_retries: int
+    retry_count: int = 0
     result: Optional[dict[str, Any]] = None
     error: Optional[str] = None
     depends_on: list[str] = Field(

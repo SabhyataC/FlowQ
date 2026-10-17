@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 import uuid
 import redis.asyncio as redis
-from sqlalchemy import func
+from sqlalchemy import func, update
 import asyncio
 from core.stats import record_completion_and_score
 from db.connection import AsyncSessionLocal
@@ -66,25 +66,58 @@ async def process_batch(
                 except Exception as e:
                     result, error = None, str(e)
 
-                # --- Step 5: mark COMPLETED or FAILED ---
+                await db.refresh(job)
+                if job.status in (JobStatus.COMPLETED, JobStatus.FAILED):
+                    await redis_client.xack(stream_key, GROUP_NAME, message_id)
+                    processed += 1
+                    continue
+
+                                # --- Step 5: mark COMPLETED or FAILED, atomically, only if
+                # the job is still RUNNING. A read-then-write here has a
+                # race window where the dashboard's "kill -> fail" write can
+                # land between our check and our commit, and get silently
+                # clobbered back to COMPLETED -- exactly what you just hit.
+                # A conditional UPDATE (same pattern as the DAG-unblock fix)
+                # closes that window: whichever write reaches Postgres
+                # first wins the transition, the loser's UPDATE just matches
+                # zero rows.
+                completed_at = datetime.now(timezone.utc)
+                values = {
+                    "status": JobStatus.COMPLETED if error is None else JobStatus.FAILED,
+                    "completed_at": completed_at,
+                }
                 if error is None:
-                    job.status = JobStatus.COMPLETED
-                    job.result = result
-                    job.completed_at = datetime.now(timezone.utc)
-                    job.duration_seconds = (job.completed_at - job.started_at).total_seconds()
-
-                    job.anomaly_score, job.is_anomaly = await record_completion_and_score(
-                        db, job.type, job.duration_seconds
-                    )
+                    values["result"] = result
+                    values["duration_seconds"] = (completed_at - job.started_at).total_seconds()
                 else:
-                    job.status = JobStatus.FAILED
-                    job.error = error
-                    job.completed_at = datetime.now(timezone.utc)
+                    values["error"] = error
 
+                update_result = await db.execute(
+                    update(Job)
+                    .where(Job.id == job.id, Job.status == JobStatus.RUNNING)
+                    .values(**values)
+                    .returning(Job.id)
+                )
+                won_transition = update_result.first() is not None
                 await db.commit()
+
+                if not won_transition:
+                    # Lost the race -- something else (dashboard kill, most
+                    # likely) already resolved this job. Don't score
+                    # anomalies or propagate DAG state for a write that
+                    # never actually happened.
+                    await redis_client.xack(stream_key, GROUP_NAME, message_id)
+                    processed += 1
+                    continue
+
+                await db.refresh(job)
 
                 # --- Step 5b: propagate to any DAG dependents ---
                 if error is None:
+                    job.anomaly_score, job.is_anomaly = await record_completion_and_score(
+                        db, job.type, job.duration_seconds
+                    )
+                    await db.commit()
                     await check_and_unblock_dependents(db, redis_client, job.id)
                 else:
                     await cascade_fail_dependents(db, job.id, reason=error)
@@ -125,6 +158,10 @@ async def claim_stale_jobs(
         async with AsyncSessionLocal() as db:
             job = await db.get(Job, uuid.UUID(job_id))
             if job is None:
+                await redis_client.xack(stream_key, GROUP_NAME, message_id)
+                continue
+
+            if job.status in (JobStatus.COMPLETED, JobStatus.FAILED):
                 await redis_client.xack(stream_key, GROUP_NAME, message_id)
                 continue
 
@@ -216,6 +253,9 @@ async def execute_job(job: Job) -> tuple[dict | None, str | None]:
     """
     sleep_seconds = job.payload.get("_sleep_seconds", 2)  # TODO: remove once real dispatch table exists; test-only hook
     await asyncio.sleep(sleep_seconds)
+
+    if job.payload.get("_force_fail"):
+        raise Exception(f"Simulated failure: {job.payload.get('_force_fail')}")
 
     result = {
         "message": f"Simulated execution of job type '{job.type}'",

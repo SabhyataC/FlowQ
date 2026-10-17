@@ -776,9 +776,20 @@
             font-size: 9px;
             color: var(--red);
             background: var(--red-dim);
-            padding: 2px 6px;
+            padding: 1px 6px;
             border-radius: 4px;
             margin-left: 6px;
+            cursor: pointer;
+        }
+
+        .anomaly-tag:hover {
+            border: 1px solid var(--red);
+            box-shadow: 0 0 8px rgba(255, 70, 70, 0.5);
+        }
+
+        .anomaly-row.highlight {
+            border-color: var(--red);
+            background: #5a2323d2;
         }
 
         .empty-state {
@@ -1132,12 +1143,24 @@
                     </div>
 
                     <!-- Repeat mode -->
+                    <!-- Repeat mode -->
                     <div id="bulk-repeat">
                         <label>Type</label>
-                        <input type="text" id="b-type" placeholder="e.g. resize_image" value="demo_job">
+                        <select id="b-type-select"></select>
 
-                        <label>Payload (JSON)</label>
-                        <textarea id="b-payload">{"_sleep_seconds": 2}</textarea>
+                        <div id="b-dynamic-fields"></div>
+
+                        <!-- Custom/raw JSON mode -->
+                        <div id="b-custom-wrap" style="display:none;">
+                            <label>Type name</label>
+                            <input type="text" id="b-custom-type" placeholder="e.g. my_custom_job" value="demo_job">
+
+                            <label>Payload (JSON)</label>
+                            <textarea id="b-payload">{"_sleep_seconds": 2}</textarea>
+                        </div>
+
+                        <label style="margin-top:12px;">Payload preview</label>
+                        <pre id="b-payload-preview" class="payload-preview"></pre>
 
                         <div class="row-2">
                             <div>
@@ -1236,6 +1259,7 @@
                                     <th data-sort="status">Status</th>
                                     <th data-sort="queue">Queue</th>
                                     <th data-sort="duration_seconds">Duration</th>
+                                    <th data-sort="retry_count">Retries</th>
                                     <th data-sort="created_at">Created</th>
                                     <th>Id</th>
                                     <th>Actions</th>
@@ -1338,103 +1362,127 @@
                 },
             };
 
-            const typeSelect = document.getElementById("s-type-select");
-            Object.entries(JOB_TYPE_REGISTRY).forEach(([key, def]) => {
-                const opt = document.createElement("option");
-                opt.value = key;
-                opt.textContent = def.label;
-                typeSelect.appendChild(opt);
+            // Shared controller: wires a type dropdown + dynamic fields + custom-JSON
+            // fallback + live preview. Used by both Single job and Bulk → Repeat.
+            function makeTypeFieldController(ns) {
+                const selectEl = document.getElementById(ns.select);
+
+                Object.entries(JOB_TYPE_REGISTRY).forEach(([key, def]) => {
+                    const opt = document.createElement("option");
+                    opt.value = key;
+                    opt.textContent = def.label;
+                    selectEl.appendChild(opt);
+                });
+
+                function render(typeKey) {
+                    const def = JOB_TYPE_REGISTRY[typeKey];
+                    const container = document.getElementById(ns.dynamicContainer);
+                    const customWrap = document.getElementById(ns.customWrap);
+                    container.innerHTML = "";
+
+                    if (!def || !def.fields) {
+                        customWrap.style.display = "block";
+                        updatePreview();
+                        return;
+                    }
+                    customWrap.style.display = "none";
+
+                    def.fields.forEach(f => {
+                        const label = document.createElement("label");
+                        label.textContent = f.label + (f.required ? " *" : "");
+                        container.appendChild(label);
+
+                        let input;
+                        if (f.type === "select") {
+                            input = document.createElement("select");
+                            f.options.forEach(o => {
+                                const opt = document.createElement("option");
+                                opt.value = o;
+                                opt.textContent = o;
+                                input.appendChild(opt);
+                            });
+                            input.value = f.default;
+                        } else if (f.type === "textarea") {
+                            input = document.createElement("textarea");
+                            input.style.minHeight = "50px";
+                            input.value = f.default;
+                        } else {
+                            input = document.createElement("input");
+                            input.type = f.type === "number" ? "number" : "text";
+                            if (f.min !== undefined) input.min = f.min;
+                            if (f.step !== undefined) input.step = f.step;
+                            if (f.placeholder) input.placeholder = f.placeholder;
+                            input.value = f.default;
+                        }
+                        input.dataset.fieldKey = f.key;
+                        input.className = ns.dynFieldClass;
+                        input.addEventListener("input", updatePreview);
+                        input.addEventListener("change", updatePreview);
+                        container.appendChild(input);
+                    });
+
+                    updatePreview();
+                }
+
+                function collect() {
+                    const def = JOB_TYPE_REGISTRY[selectEl.value];
+                    if (!def || !def.fields) return null;
+                    const payload = {};
+                    const missing = [];
+                    document.querySelectorAll(`#${ns.dynamicContainer} .${ns.dynFieldClass}`).forEach(input => {
+                        const key = input.dataset.fieldKey;
+                        const fieldDef = def.fields.find(f => f.key === key);
+                        let val = input.value;
+                        if (fieldDef.type === "number") {
+                            val = val === "" ? null : Number(val);
+                        }
+                        if (fieldDef.required && (val === "" || val === null || val === undefined)) {
+                            missing.push(fieldDef.label);
+                        }
+                        payload[key] = val;
+                    });
+                    return { payload, missing };
+                }
+
+                function updatePreview() {
+                    const preview = document.getElementById(ns.preview);
+                    if (selectEl.value === "custom") {
+                        try {
+                            const parsed = JSON.parse(document.getElementById(ns.payload).value || "{}");
+                            preview.textContent = JSON.stringify(parsed, null, 2);
+                        } catch (e) {
+                            preview.textContent = "(invalid JSON)";
+                        }
+                        return;
+                    }
+                    const result = collect();
+                    preview.textContent = JSON.stringify(result ? result.payload : {}, null, 2);
+                }
+
+                selectEl.addEventListener("change", () => render(selectEl.value));
+                document.getElementById(ns.payload).addEventListener("input", updatePreview);
+                render(selectEl.value);
+
+                return { select: selectEl, render, collect, updatePreview };
+            }
+
+            const singleTypeCtrl = makeTypeFieldController({
+                select: "s-type-select",
+                dynamicContainer: "s-dynamic-fields",
+                dynFieldClass: "s-dyn-field",
+                customWrap: "s-custom-wrap",
+                payload: "s-payload",
+                preview: "s-payload-preview",
             });
 
-            function renderDynamicFields(typeKey) {
-                const def = JOB_TYPE_REGISTRY[typeKey];
-                const container = document.getElementById("s-dynamic-fields");
-                const customWrap = document.getElementById("s-custom-wrap");
-                container.innerHTML = "";
-
-                if (!def || !def.fields) {
-                    customWrap.style.display = "block";
-                    updatePayloadPreview();
-                    return;
-                }
-                customWrap.style.display = "none";
-
-                def.fields.forEach(f => {
-                    const label = document.createElement("label");
-                    label.textContent = f.label + (f.required ? " *" : "");
-                    container.appendChild(label);
-
-                    let input;
-                    if (f.type === "select") {
-                        input = document.createElement("select");
-                        f.options.forEach(o => {
-                            const opt = document.createElement("option");
-                            opt.value = o;
-                            opt.textContent = o;
-                            input.appendChild(opt);
-                        });
-                        input.value = f.default;
-                    } else if (f.type === "textarea") {
-                        input = document.createElement("textarea");
-                        input.style.minHeight = "50px";
-                        input.value = f.default;
-                    } else {
-                        input = document.createElement("input");
-                        input.type = f.type === "number" ? "number" : "text";
-                        if (f.min !== undefined) input.min = f.min;
-                        if (f.step !== undefined) input.step = f.step;
-                        if (f.placeholder) input.placeholder = f.placeholder;
-                        input.value = f.default;
-                    }
-                    input.dataset.fieldKey = f.key;
-                    input.className = "s-dyn-field";
-                    input.addEventListener("input", updatePayloadPreview);
-                    input.addEventListener("change", updatePayloadPreview);
-                    container.appendChild(input);
-                });
-
-                updatePayloadPreview();
-            }
-
-            function collectDynamicPayload() {
-                const def = JOB_TYPE_REGISTRY[typeSelect.value];
-                if (!def || !def.fields) return null;
-                const payload = {};
-                const missing = [];
-                document.querySelectorAll("#s-dynamic-fields .s-dyn-field").forEach(input => {
-                    const key = input.dataset.fieldKey;
-                    const fieldDef = def.fields.find(f => f.key === key);
-                    let val = input.value;
-                    if (fieldDef.type === "number") {
-                        val = val === "" ? null : Number(val);
-                    }
-                    if (fieldDef.required && (val === "" || val === null || val === undefined)) {
-                        missing.push(fieldDef.label);
-                    }
-                    payload[key] = val;
-                });
-                return { payload, missing };
-            }
-
-            function updatePayloadPreview() {
-                const preview = document.getElementById("s-payload-preview");
-                if (typeSelect.value === "custom") {
-                    try {
-                        const parsed = JSON.parse(document.getElementById("s-payload").value || "{}");
-                        preview.textContent = JSON.stringify(parsed, null, 2);
-                    } catch (e) {
-                        preview.textContent = "(invalid JSON)";
-                    }
-                    return;
-                }
-                const { payload } = collectDynamicPayload();
-                preview.textContent = JSON.stringify(payload, null, 2);
-            }
-
-            typeSelect.addEventListener("change", () => renderDynamicFields(typeSelect.value));
-            document.getElementById("s-payload").addEventListener("input", updatePayloadPreview);
-
-            renderDynamicFields(typeSelect.value);
+            const bulkTypeCtrl = makeTypeFieldController({
+                select: "b-type-select",
+                dynamicContainer: "b-dynamic-fields",
+                dynFieldClass: "b-dyn-field",
+                customWrap: "b-custom-wrap",
+                payload: "b-payload",
+                preview: "b-payload-preview",
+            });
 
 
             // ------------------------------------------------------------------
@@ -1471,7 +1519,7 @@
                 const msg = document.getElementById("s-msg");
                 msg.className = "form-msg";
 
-                const typeKey = typeSelect.value;
+                const typeKey = singleTypeCtrl.select.value;
                 const def = JOB_TYPE_REGISTRY[typeKey];
 
                 let payload;
@@ -1484,7 +1532,7 @@
                         return;
                     }
                 } else {
-                    const { payload: collected, missing } = collectDynamicPayload();
+                    const { payload: collected, missing } = singleTypeCtrl.collect();
                     if (missing.length) {
                         msg.textContent = `Missing required field${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}`;
                         msg.className = "form-msg err show";
@@ -1546,15 +1594,29 @@
 
                 let body;
                 if (mode === "repeat") {
+                    const typeKey = bulkTypeCtrl.select.value;
+                    const def = JOB_TYPE_REGISTRY[typeKey];
+
                     let payload;
-                    try {
-                        payload = JSON.parse(document.getElementById("b-payload").value || "{}");
-                    } catch (e) {
-                        msg.textContent = "Payload isn't valid JSON: " + e.message;
-                        msg.className = "form-msg err show";
-                        return;
+                    if (!def || !def.fields) {
+                        try {
+                            payload = JSON.parse(document.getElementById("b-payload").value || "{}");
+                        } catch (e) {
+                            msg.textContent = "Payload isn't valid JSON: " + e.message;
+                            msg.className = "form-msg err show";
+                            return;
+                        }
+                    } else {
+                        const { payload: collected, missing } = bulkTypeCtrl.collect();
+                        if (missing.length) {
+                            msg.textContent = `Missing required field${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}`;
+                            msg.className = "form-msg err show";
+                            return;
+                        }
+                        payload = collected;
                     }
-                    const type = document.getElementById("b-type").value.trim();
+
+                    const type = typeKey === "custom" ? document.getElementById("b-custom-type").value.trim() : typeKey;
                     if (!type) {
                         msg.textContent = "Type is required.";
                         msg.className = "form-msg err show";
@@ -1846,15 +1908,20 @@
                     if (flashIds.has(j.id)) tr.classList.add("flash");
                     tr.innerHTML = `
         <td class="job-type">${escapeHtml(j.type)}</td>
-        <td>
+                        <td>
           <span class="pill ${j.status}">${j.status}</span>
-          ${j.is_anomaly ? `<span class="anomaly-tag" title="${escapeHtml(describeAnomaly(j).text)}">⚠ anomaly</span>` : ""}
+            ${j.is_anomaly ? `<span class="anomaly-tag" data-id="${j.id}" title="${escapeHtml(describeAnomaly(j).text)}">⚠ anomaly</span>` : ""}
         </td>
         <td>${escapeHtml(j.queue)}</td>
         <td>${fmtDuration(j)}</td>
+        <td class="${j.retry_count > 0 ? "retry-count-nonzero" : ""}">${j.retry_count > 0 ? `${j.retry_count}/${j.max_retries}` : "-"}</td>
         <td>${fmtTime(j.created_at)}</td>
         <td class="mono-id">${j.id.slice(0, 8)}…</td>
-        <td><button class="row-delete" data-id="${j.id}" ${["blocked", "completed", "failed"].includes(j.status) ? "" : "disabled"} title="${["blocked", "completed", "failed"].includes(j.status) ? "Delete job" : "Only blocked, completed, or failed jobs can be deleted"}">✕</button></td>
+        <td>
+          <button class="row-kill" data-id="${j.id}" data-mode="crash" ${j.status === "running" ? "" : "disabled"} title="${j.status === "running" ? "Kill worker: simulate crash (job will be reclaimed & retried)" : "Only a running job has a worker to kill"}">↺</button>
+          <button class="row-kill" data-id="${j.id}" data-mode="fail" ${j.status === "running" ? "" : "disabled"} title="${j.status === "running" ? "Kill worker: fail cleanly (no retry)" : "Only a running job has a worker to kill"}">⊘</button>
+          <button class="row-delete" data-id="${j.id}" ${["blocked", "completed", "failed"].includes(j.status) ? "" : "disabled"} title="${["blocked", "completed", "failed"].includes(j.status) ? "Delete job" : "Only blocked, completed, or failed jobs can be deleted"}">✕</button>
+        </td>
       `;
                     tbody.appendChild(tr);
                 });
@@ -1888,10 +1955,51 @@
             }
 
             document.getElementById("jobs-tbody").addEventListener("click", (e) => {
-                const btn = e.target.closest(".row-delete");
-                if (!btn || btn.disabled) return;
-                deleteJob(btn.dataset.id);
+                const deleteBtn = e.target.closest(".row-delete");
+                if (deleteBtn && !deleteBtn.disabled) {
+                    deleteJob(deleteBtn.dataset.id);
+                    return;
+                }
+                const killBtn = e.target.closest(".row-kill");
+                if (killBtn && !killBtn.disabled) {
+                    killJob(killBtn.dataset.id, killBtn.dataset.mode);
+                    return;
+                }
+                const anomalyTag = e.target.closest(".anomaly-tag");
+                if (anomalyTag) {
+                    goToAnomalyExplanation(anomalyTag.dataset.id);
+                }
             });
+
+            function goToAnomalyExplanation(jobId) {
+                document.querySelector('.main-tab-btn[data-view="anomalies"]').click();
+                const row = document.querySelector(`.anomaly-row[data-id="${jobId}"]`);
+                if (!row) return;
+                row.scrollIntoView({ behavior: "smooth", block: "center" });
+                row.classList.add("highlight");
+                setTimeout(() => row.classList.remove("highlight"), 2000);
+            }
+
+            // ------------------------------------------------------------------
+            // Kill worker (demo: simulate crash or fail cleanly)
+            // ------------------------------------------------------------------
+            async function killJob(jobId, mode) {
+                const label = mode === "crash" ? "simulate a crash (job will retry)" : "fail cleanly (no retry)";
+                if (!confirm(`Kill the worker running this job — ${label}?`)) return;
+                try {
+                    const res = await fetch(API + "/jobs/" + jobId + "/kill", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ mode }),
+                    });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.detail || res.status);
+                    upsertJob(data);
+                    toast(mode === "crash" ? "Worker killed" : "Job failed", jobId.slice(0, 8) + "…");
+                } catch (e) {
+                    toast("Kill failed", e.message, "failed");
+                }
+            }
 
             // ------------------------------------------------------------------
             // DAG graph rendering
@@ -2153,6 +2261,7 @@
                 list.forEach(j => {
                     const row = document.createElement("div");
                     row.className = "anomaly-row";
+                    row.dataset.id = j.id;
                     const pct = Math.min(100, ((j.anomaly_score || 0) / maxScore) * 100);
                     const reason = describeAnomaly(j);
                     row.innerHTML = `

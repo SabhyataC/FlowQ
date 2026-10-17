@@ -12,7 +12,8 @@ from db.connection import get_db, AsyncSessionLocal
 from db.redis_client import get_redis
 from db.models import Job, JobStatus
 from core.queue import enqueue, enqueue_batch
-from core.scaler import SCALER_STATUS_KEY, SCALER_OVERRIDE_KEY
+from core.scaler import SCALER_STATUS_KEY, SCALER_OVERRIDE_KEY, SCALER_KILL_CHANNEL
+from core.queue import cascade_fail_dependents
 from core.dag import DAGValidationError
 from typing import Optional
 from sqlalchemy import select
@@ -225,6 +226,57 @@ async def get_job_status(
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
 
+    return job
+
+
+class KillWorkerRequest(BaseModel):
+    mode: str  # "crash" | "fail"
+
+
+@router.post("/jobs/{job_id}/kill", response_model=JobResponse)
+async def kill_worker(
+    job_id: uuid.UUID,
+    body: KillWorkerRequest,
+    db: AsyncSession = Depends(get_db),
+    redis_client: redis.Redis = Depends(get_redis),
+):
+    """
+    Demo/testing hook: forcibly kill the worker currently running a job.
+
+    - mode="crash": job row is left untouched. The worker task is
+      cancelled mid-execution, so its stream message is never acked --
+      claim_stale_jobs picks it up as an orphaned message once idle_ms
+      passes and retries it from scratch, same as a real crash.
+    - mode="fail": job is marked FAILED (and its DAG dependents cascade-
+      failed) *before* the worker is cancelled, so there's no retry.
+    """
+    if body.mode not in ("crash", "fail"):
+        raise HTTPException(status_code=422, detail="mode must be 'crash' or 'fail'")
+
+    job = await db.get(Job, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if job.status != JobStatus.RUNNING:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot kill a job with status '{job.status.value}'. "
+                   f"Only a running job has a worker to kill.",
+        )
+
+    if not job.worker_id:
+        raise HTTPException(status_code=409, detail="Job has no worker_id recorded.")
+
+    if body.mode == "fail":
+        job.status = JobStatus.FAILED
+        job.error = "Killed via dashboard (demo)"
+        job.completed_at = datetime.now(timezone.utc)
+        await db.commit()
+        await cascade_fail_dependents(db, job.id, reason=job.error)
+
+    await redis_client.publish(SCALER_KILL_CHANNEL, job.worker_id)
+
+    await db.refresh(job)
     return job
 
 @router.delete("/jobs/{job_id}", status_code=204)
