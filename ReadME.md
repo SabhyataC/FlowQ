@@ -100,6 +100,15 @@ python -m core.scaler
 
 The scaler is its own process; the API does not start it. Open the dashboard at `http://localhost:8000/dashboard`.
 
+### Run with one command (Linux / WSL)
+
+```bash
+chmod +x scripts/run_stack.sh
+./scripts/run_stack.sh
+```
+
+The script checks that Redis and Postgres are reachable, starts the API and the autoscaler, and on Ctrl+C sends SIGTERM to the scaler first so workers drain in-flight jobs before the API stops.
+
 ## API overview <!-- VERIFY paths and methods against main.py -->
 
 | Method | Path | Description |
