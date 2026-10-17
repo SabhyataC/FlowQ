@@ -152,3 +152,7 @@ Job_Manager/
 - Reclaimed jobs restart from the beginning rather than resuming.
 - Anomaly scoring is based on duration only; the system doesn't track CPU, network, or other resource metrics.
 - Deleting `PENDING`/`RUNNING` jobs from the dashboard is currently disabled.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
